@@ -1,0 +1,2 @@
+requests-packages/installers/** filter=lfs diff=lfs merge=lfs -text
+requests-packages/wheelhouse/** filter=lfs diff=lfs merge=lfs -text

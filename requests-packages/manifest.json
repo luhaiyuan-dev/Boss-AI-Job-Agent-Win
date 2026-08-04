@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "bundle_version": "2026-08-04",
+  "project_version": "0.1.3",
+  "target": "Windows 10/11 x64",
+  "python_abi": "CPython 3.13 x64",
+  "packages": [
+    {
+      "name": "Python",
+      "version": "3.13.14",
+      "path": "installers/python-3.13.14-amd64.exe",
+      "bytes": 29225624,
+      "sha256": "C54D9B9BBB8A36E6489363DDD01139707FD781D72F1F9E90C7EC65D0061368E0",
+      "source": "https://www.python.org/ftp/python/3.13.14/python-3.13.14-amd64.exe",
+      "required": true,
+      "kind": "installer"
+    },
+    {
+      "name": "Microsoft Edge Enterprise x64",
+      "version": "151.0.4129.59",
+      "path": "installers/MicrosoftEdgeEnterpriseX64-151.0.4129.59.msi",
+      "bytes": 209997824,
+      "sha256": "AD2FB7B3BD49564D0967C4EB0B0307D5420A9636E8E2F479E7FFC4E8B7B86AE6",
+      "source": "https://edgeupdates.microsoft.com/api/products?view=enterprise",
+      "required": true,
+      "kind": "installer"
+    },
+    {
+      "name": "MySQL Community Server",
+      "version": "8.0.36",
+      "path": "installers/mysql-8.0.36-winx64.zip",
+      "bytes": 243592163,
+      "sha256": "A1BC2AD567EEF672BE20B591AD25B14F221E60BDE3AE3EB235128D91E4166557",
+      "source": "https://cdn.mysql.com/archives/mysql-8.0/mysql-8.0.36-winx64.zip",
+      "required": true,
+      "kind": "archive"
+    },
+    {
+      "name": "Microsoft Visual C++ Redistributable x64",
+      "version": "14.50.35719.0",
+      "path": "installers/vc_redist.x64.exe",
+      "bytes": 18558944,
+      "sha256": "8995548DFFFCDE7C49987029C764355612BA6850EE09A7B6F0FDDC85BDC5C280",
+      "source": "https://aka.ms/vs/18/release/14.50.35719/VC_redist.x64.exe",
+      "required": true,
+      "kind": "installer"
+    },
+    {
+      "name": "Navicat Premium x64",
+      "version": "17.3.11",
+      "path": "installers/navicat-premium-17.3.11-en-x64.exe",
+      "bytes": 152687592,
+      "sha256": "4127CF7FF52251D93CA65886F6B0356813785EDD36A8D1F933858325FA00B053",
+      "source": "https://download.navicat.com/download/navicat17_premium_en_x64.exe",
+      "required": false,
+      "kind": "optional-installer"
+    },
+    {
+      "name": "OpenAI Codex CLI Windows x64",
+      "version": "0.133.0",
+      "path": "installers/codex-x86_64-pc-windows-msvc-0.133.0.exe.zip",
+      "bytes": 84480313,
+      "sha256": "D73D03CA6CEAF59492FA56080E9231F4597DC28C60EF29EBB03AC8CC8069840A",
+      "source": "https://github.com/openai/codex/releases/download/rust-v0.133.0/codex-x86_64-pc-windows-msvc.exe.zip",
+      "required": false,
+      "kind": "optional-archive"
+    },
+    {
+      "name": "attrs wheel",
+      "version": "26.1.0",
+      "path": "wheelhouse/attrs-26.1.0-py3-none-any.whl",
+      "bytes": 67548,
+      "sha256": "C647AA4A12DFBAD9333CA4E71FE62DDC36F4E63B2D260A37A8B83D2F043AC309",
+      "source": "https://pypi.org/project/attrs/26.1.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "certifi wheel",
+      "version": "2026.6.17",
+      "path": "wheelhouse/certifi-2026.6.17-py3-none-any.whl",
+      "bytes": 133289,
+      "sha256": "2227DCBAAFE0D2F59279D1762DDDDC37783ED4354594F194FFC31D20F41FC3DB",
+      "source": "https://pypi.org/project/certifi/2026.6.17/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "cffi wheel",
+      "version": "2.0.0",
+      "path": "wheelhouse/cffi-2.0.0-cp313-cp313-win_amd64.whl",
+      "bytes": 183402,
+      "sha256": "19F705ADA2530C1167ABACB171925DD886168931E0A7B78F5BFFCAE5C6B5BE75",
+      "source": "https://pypi.org/project/cffi/2.0.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "charset-normalizer wheel",
+      "version": "3.4.7",
+      "path": "wheelhouse/charset_normalizer-3.4.7-cp313-cp313-win_amd64.whl",
+      "bytes": 158819,
+      "sha256": "3946FA46A0CF3E4C8CB1CC52F56BB536310D34F25F01CA9B6C16AFA767DAB110",
+      "source": "https://pypi.org/project/charset-normalizer/3.4.7/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "h11 wheel",
+      "version": "0.16.0",
+      "path": "wheelhouse/h11-0.16.0-py3-none-any.whl",
+      "bytes": 37515,
+      "sha256": "63CF8BBE7522DE3BF65932FDA1D9C2772064FFB3DAE62D55932DA54B31CB6C86",
+      "source": "https://pypi.org/project/h11/0.16.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "idna wheel",
+      "version": "3.18",
+      "path": "wheelhouse/idna-3.18-py3-none-any.whl",
+      "bytes": 65455,
+      "sha256": "7F952CBE720B688055E3F87DE14F5C3E5FDAA8BC3928985C4077CA689DE849A2",
+      "source": "https://pypi.org/project/idna/3.18/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "mysql-connector-python wheel",
+      "version": "9.7.0",
+      "path": "wheelhouse/mysql_connector_python-9.7.0-cp313-cp313-win_amd64.whl",
+      "bytes": 17678686,
+      "sha256": "229FFCE2333B88B59F8F034881E12DC85B309615338BE9F843ED63923DB99D52",
+      "source": "https://pypi.org/project/mysql-connector-python/9.7.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "opencc wheel",
+      "version": "1.3.2",
+      "path": "wheelhouse/opencc-1.3.2-cp313-cp313-win_amd64.whl",
+      "bytes": 2647849,
+      "sha256": "99258BBA81CF2487AA450E6D430FA290501C798558D7389CDB3D2280AF387E18",
+      "source": "https://pypi.org/project/opencc/1.3.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "outcome wheel",
+      "version": "1.3.0.post0",
+      "path": "wheelhouse/outcome-1.3.0.post0-py2.py3-none-any.whl",
+      "bytes": 10692,
+      "sha256": "E771C5CE06D1415E356078D3BDD68523F284B4CE5419828922B6871E65EDA82B",
+      "source": "https://pypi.org/project/outcome/1.3.0.post0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "packaging wheel",
+      "version": "26.2",
+      "path": "wheelhouse/packaging-26.2-py3-none-any.whl",
+      "bytes": 100195,
+      "sha256": "5FC45236B9446107FF2415CE77C807CEE2862CB6FAC22B8A73826D0693B0980E",
+      "source": "https://pypi.org/project/packaging/26.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "pip wheel",
+      "version": "26.1.2",
+      "path": "wheelhouse/pip-26.1.2-py3-none-any.whl",
+      "bytes": 1813144,
+      "sha256": "382FF9F685EE3BC25864F820AA50505825F10F5458FFFF07E30A6D96E5715CAB",
+      "source": "https://pypi.org/project/pip/26.1.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "pycparser wheel",
+      "version": "3.0",
+      "path": "wheelhouse/pycparser-3.0-py3-none-any.whl",
+      "bytes": 48172,
+      "sha256": "B727414169A36B7D524C1C3E31839A521725078D7B2FF038656844266160A992",
+      "source": "https://pypi.org/project/pycparser/3.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "pypdf wheel",
+      "version": "6.14.2",
+      "path": "wheelhouse/pypdf-6.14.2-py3-none-any.whl",
+      "bytes": 349514,
+      "sha256": "3F07891AF76DC002657E04993AB9B4DE81DE29F9013B9761D0B7968BFF12E946",
+      "source": "https://pypi.org/project/pypdf/6.14.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "PySocks wheel",
+      "version": "1.7.1",
+      "path": "wheelhouse/PySocks-1.7.1-py3-none-any.whl",
+      "bytes": 16725,
+      "sha256": "2725BD0A9925919B9B51739EEA5F9E2BAE91E83288108A9AD338B2E3A4435EE5",
+      "source": "https://pypi.org/project/PySocks/1.7.1/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "python-dotenv wheel",
+      "version": "1.2.2",
+      "path": "wheelhouse/python_dotenv-1.2.2-py3-none-any.whl",
+      "bytes": 22101,
+      "sha256": "1D8214789A24DE455A8B8BD8AE6FE3C6B69A5E3D64AA8A8E5D68E694BBCB285A",
+      "source": "https://pypi.org/project/python-dotenv/1.2.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "requests wheel",
+      "version": "2.34.2",
+      "path": "wheelhouse/requests-2.34.2-py3-none-any.whl",
+      "bytes": 73075,
+      "sha256": "2A0D60C172F83AC6AB31E4554906C0F3B3588D37B5CB939B1C061F4907E278E0",
+      "source": "https://pypi.org/project/requests/2.34.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "selenium wheel",
+      "version": "4.45.0",
+      "path": "wheelhouse/selenium-4.45.0-py3-none-any.whl",
+      "bytes": 9536616,
+      "sha256": "1FD9D0DC08192B2F8100E264ED720F83B05D2DD3A7FEFF673DF04E0C7580DF4B",
+      "source": "https://pypi.org/project/selenium/4.45.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "setuptools wheel",
+      "version": "81.0.0",
+      "path": "wheelhouse/setuptools-81.0.0-py3-none-any.whl",
+      "bytes": 1062021,
+      "sha256": "FDD925D5C5D9F62E4B74B30D6DD7828CE236FD6ED998A08D81DE62CE5A6310D6",
+      "source": "https://pypi.org/project/setuptools/81.0.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "sniffio wheel",
+      "version": "1.3.1",
+      "path": "wheelhouse/sniffio-1.3.1-py3-none-any.whl",
+      "bytes": 10235,
+      "sha256": "2F6DA418D1F1E0FDDD844478F41680E794E6051915791A034FF65E5F100525A2",
+      "source": "https://pypi.org/project/sniffio/1.3.1/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "sortedcontainers wheel",
+      "version": "2.4.0",
+      "path": "wheelhouse/sortedcontainers-2.4.0-py2.py3-none-any.whl",
+      "bytes": 29575,
+      "sha256": "A163DCAEDE0F1C021485E957A39245190E74249897E2AE4B2AA38595DB237EE0",
+      "source": "https://pypi.org/project/sortedcontainers/2.4.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "trio-websocket wheel",
+      "version": "0.12.2",
+      "path": "wheelhouse/trio_websocket-0.12.2-py3-none-any.whl",
+      "bytes": 21221,
+      "sha256": "DF605665F1DB533F4A386C94525870851096A223ADCB97F72A07E8B4BEBA45B6",
+      "source": "https://pypi.org/project/trio-websocket/0.12.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "trio wheel",
+      "version": "0.33.0",
+      "path": "wheelhouse/trio-0.33.0-py3-none-any.whl",
+      "bytes": 510294,
+      "sha256": "3BD5D87F781D9B0192D592AEF28691F8951D6C2E41B7E1DA4C25CDE6C180AE9B",
+      "source": "https://pypi.org/project/trio/0.33.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "typing-extensions wheel",
+      "version": "4.15.0",
+      "path": "wheelhouse/typing_extensions-4.15.0-py3-none-any.whl",
+      "bytes": 44614,
+      "sha256": "F0FA19C6845758AB08074A0CFA8B7AECB71C999CA73D62883BC25CC018C4E548",
+      "source": "https://pypi.org/project/typing-extensions/4.15.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "urllib3 wheel",
+      "version": "2.7.0",
+      "path": "wheelhouse/urllib3-2.7.0-py3-none-any.whl",
+      "bytes": 131087,
+      "sha256": "9FB4C81EBBB1CE9531CCE37674BBC6F1360472BC18CA9A553EDE278EF7276897",
+      "source": "https://pypi.org/project/urllib3/2.7.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "webdriver-manager wheel",
+      "version": "4.1.2",
+      "path": "wheelhouse/webdriver_manager-4.1.2-py3-none-any.whl",
+      "bytes": 32512,
+      "sha256": "552BBB4E6F95E6E8B772565D2023E7C0EC5FF1736DB0B186922D0466FC78C3DE",
+      "source": "https://pypi.org/project/webdriver-manager/4.1.2/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "websocket-client wheel",
+      "version": "1.9.0",
+      "path": "wheelhouse/websocket_client-1.9.0-py3-none-any.whl",
+      "bytes": 82616,
+      "sha256": "AF248A825037EF591EFBF6ED20CC5FAA03D3B47B9E5A2230A529EEEE1C1FC3EF",
+      "source": "https://pypi.org/project/websocket-client/1.9.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "wheel wheel",
+      "version": "0.47.0",
+      "path": "wheelhouse/wheel-0.47.0-py3-none-any.whl",
+      "bytes": 32218,
+      "sha256": "212281CAB4DFF978F6CEDD499CD893E1F620791CA6FF7107CF270781E587ECED",
+      "source": "https://pypi.org/project/wheel/0.47.0/",
+      "required": true,
+      "kind": "python-wheel"
+    },
+    {
+      "name": "wsproto wheel",
+      "version": "1.3.2",
+      "path": "wheelhouse/wsproto-1.3.2-py3-none-any.whl",
+      "bytes": 24405,
+      "sha256": "61EEA322CDF56E8CC904BD3AD7573359A242BA65688716B0710A5EB12BEAB584",
+      "source": "https://pypi.org/project/wsproto/1.3.2/",
+      "required": true,
+      "kind": "python-wheel"
+    }
+  ]
+}

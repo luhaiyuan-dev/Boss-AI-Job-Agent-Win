@@ -1,0 +1,14 @@
+{
+    "enabled": false,
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-pro",
+    "api_key": "",
+  "api_key_env": "DEEPSEEK_API_KEY",
+    "timeout_seconds": 60.0,
+    "max_retries": 2,
+    "retry_base_seconds": 1.0,
+    "temperature": 0.1,
+    "max_tokens": 4096,
+    "thinking_mode": "disabled",
+    "use_json_response_format": true
+}

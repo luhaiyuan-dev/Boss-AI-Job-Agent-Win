@@ -1,0 +1,17 @@
+# Windows / Edge Web 版 Boss 求职助手依赖。
+
+# 浏览器自动化：保留 Selenium 类型兼容；实际接管使用 websocket-client 直连 Edge
+# 的最小 CDP，避免 EdgeDriver 向页面注入 cdc_ 标记后触发 Boss 安全页循环。
+selenium>=4.20,<5
+websocket-client>=1.8,<2
+# 可选：离线/内网环境用它手动管理 msedgedriver。
+webdriver-manager>=4.0,<5
+
+# 岗位运行记录与投递统计写入共享 MySQL 数据库（与 Android 版共用同一个库）。
+mysql-connector-python>=9.0,<10
+
+# 本地 PDF 简历文本提取（扫描件 OCR 不在当前阶段范围内）。
+pypdf>=6.0,<7
+
+# 校验模型生成的招呼语确实为简体中文。
+OpenCC>=1.1,<2
