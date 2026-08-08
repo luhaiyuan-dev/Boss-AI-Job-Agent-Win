@@ -6,6 +6,9 @@ htmlcov/
 .venv/
 build/
 dist/
+# PyInstaller 打包产物（双击运行），不入版本控制。
+Boss登录浏览器.exe
+Boss求职助手.exe
 
 .env
 .env.*

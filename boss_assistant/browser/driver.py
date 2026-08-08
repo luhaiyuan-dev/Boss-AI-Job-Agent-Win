@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import random
+import sys
 import json
 import re
 import subprocess
@@ -83,17 +84,21 @@ def default_edge_user_data_dir() -> Path:
     return Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data"
 
 
+def _project_root() -> Path:
+    """项目根目录：PyInstaller 冻结运行时为 exe 所在目录，源码运行为模块上级目录。"""
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
 def boss_edge_user_data_dir() -> Path:
     """返回 Boss 自动化专用的账号 Profile 镜像目录。"""
 
     configured = os.environ.get("BOSS_EDGE_USER_DATA_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
-    return (
-        Path(__file__).resolve().parents[2]
-        / "data"
-        / "edge_profile_boss"
-    )
+    return _project_root() / "data" / "edge_profile_boss"
 
 
 def _read_debugger_address_from_user_data_dir(user_data_dir: Path) -> str | None:
@@ -140,6 +145,10 @@ def _running_edge_command_lines() -> list[str]:
             encoding="utf-8",
             errors="replace",
             timeout=5,
+            # GUI/--windowed 进程启动 powershell.exe 时，若不显式禁止创建
+            # 控制台，Windows 会短暂显示空终端窗口。该函数会被 GUI 的
+            # 求职意向探针周期调用，因此必须从进程创建层彻底隐藏。
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         return []
@@ -160,7 +169,7 @@ def _extract_user_data_dir(command_line: str) -> Path | None:
 
 
 def _project_edge_user_data_dirs() -> list[Path]:
-    data_dir = Path(__file__).resolve().parents[2] / "data"
+    data_dir = _project_root() / "data"
     if not data_dir.is_dir():
         return []
     return [

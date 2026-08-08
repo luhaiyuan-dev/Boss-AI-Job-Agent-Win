@@ -1,6 +1,6 @@
 # Boss 求职助手控制台（Windows Web）
 
-当前版本：`0.1.3`
+当前版本：`0.1.4`
 
 本项目通过登录专用 Microsoft Edge 的最小原生 CDP 通道读取 Boss直聘 Web 页面，结合本地 PDF 简历和大模型审核岗位，并在 Tkinter 控制台中完成筛选、招呼语生成、受控填充/发送、未读消息巡检、断点保存和结果统计。
 
@@ -108,11 +108,13 @@ Copy-Item config\model_api.example.json config\model_api.local.json
 
 ## 登录专用 Edge
 
-先启动项目专用 Edge：
+先启动项目专用 Edge（两种方式任选其一）：
 
 ```powershell
 python tools\open_login_edge.py
 ```
+
+或直接双击项目根目录的 `Boss登录浏览器.exe`（打包产物，无终端窗口；启动成功不弹窗，仅启动失败时弹窗提示）。
 
 在打开的 Edge 中手动登录 Boss直聘，并保持该窗口开启。登录资料保存在 `data/edge_profile_boss/`，不会放进部署包或版本控制。
 
@@ -129,6 +131,8 @@ python run_control_panel.py
 ```powershell
 python -m boss_assistant.gui
 ```
+
+或直接双击项目根目录的 `Boss求职助手.exe`（无控制台窗口）。exe 双击运行时会自动把工作目录固定到项目根目录，`data/`、`config/`、`resume_inbox/` 等相对路径与命令行启动行为一致。
 
 GUI 启动后会通过独立的只读 CDP 会话预读网页求职意向，不会因此初始化简历、MySQL、模型或投递循环。点击“开始”后才正式运行。
 
@@ -194,16 +198,31 @@ python tools\probe_dom.py --target-city 广州 --target-role Python
 python tools\run_fill_only_smoke.py --target-companies 1 --max-jobs 10
 ```
 
+## 打包为 exe
+
+需要 PyInstaller 和 Pillow（图标生成），然后执行：
+
+```powershell
+python -m pip install pyinstaller pillow
+powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
+```
+
+产物为项目根目录下的两个 exe：`Boss登录浏览器.exe`（启动登录专用 Edge，双击无终端窗口，仅启动失败时弹窗提示）和 `Boss求职助手.exe`（启动 Tkinter 控制台，无终端窗口）。两者调用 PowerShell/Edge 子进程时也会使用 Windows 无窗口创建参数，避免 GUI 求职意向周期探测或关闭浏览器后出现空终端闪窗。
+
+图标源图位于 `assets/icons/`：清新天蓝底的“白色公文包 + 珊瑚橙星芒”代表求职助手，“白色浏览器 + 暖黄色钥匙孔”代表登录浏览器。`tools/make_icons.py` 会裁切透明空白并生成含 16/24/32/48/64/128/256 像素的 ICO；打包脚本每次都会从源图重建，确保修改图标后不会继续使用旧产物。
+
+**exe 是打包时刻代码与依赖的冻结快照**：每次修改源码（修复 BUG、优化升级）后必须重新执行上述打包命令，两个 exe 才会包含新改动；打包不会修改源码，命令行启动方式始终可用。exe 均不进入版本控制，重新打包会覆盖旧产物。
+
 ## 验证
 
 ```powershell
 python -m pytest tests -q
 python -m compileall -q boss_assistant tests run_control_panel.py tools
-python -m pip check
+.\.venv\Scripts\python.exe -m pip check
 python -m ruff check boss_assistant tests run_control_panel.py tools
 ```
 
-当前 `0.1.3` 基线与离线部署校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
+当前 `0.1.4` 基线、EXE 无闪窗及离线部署校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
 
 ## 安全边界与已知限制
 

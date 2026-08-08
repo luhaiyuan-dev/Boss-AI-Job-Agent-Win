@@ -12,8 +12,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-WORKSPACE = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(WORKSPACE))
+if getattr(sys, "frozen", False):
+    # PyInstaller 冻结运行时：exe 位于项目根目录，模块已内嵌，无需路径注入。
+    WORKSPACE = Path(sys.executable).resolve().parent
+else:
+    WORKSPACE = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(WORKSPACE))
 
 from boss_assistant.browser.driver import (
     DEBUG_PORT_FILE,
@@ -124,7 +128,9 @@ def _open_boss_in_existing_edge(profile_dir: Path) -> bool:
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             timeout=5.0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -140,27 +146,66 @@ def _wait_for_boss_target(profile_dir: Path, timeout: float = 8.0) -> bool:
     return False
 
 
+def _notify(title: str, message: str) -> None:
+    """成功信息：命令行模式打印；窗口模式静默（双击启动不弹窗）。"""
+
+    print(message)
+
+
+def _notify_error(message: str) -> None:
+    """错误提示：命令行打印；窗口模式弹消息框（启动失败必须让用户知道）。"""
+
+    print(f"[失败] {message}")
+    if getattr(sys, "frozen", False):
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            messagebox.showerror("Boss登录浏览器", f"[失败] {message}", parent=root)
+        finally:
+            root.destroy()
+
+
 def main() -> None:
+    if getattr(sys, "frozen", False):
+        # 双击 exe 启动时把工作目录固定到 exe 所在目录（项目根）。
+        os.chdir(WORKSPACE)
+    try:
+        _run_main()
+    except RuntimeError as exc:
+        _notify_error(str(exc))
+        raise SystemExit(1)
+
+
+def _run_main() -> None:
     args = _parser().parse_args()
     profile_dir = Path(args.profile_dir).expanduser().resolve()
     profile_dir.mkdir(parents=True, exist_ok=True)
     existing_targets = _targets_for_profile(profile_dir)
     if existing_targets:
         target = existing_targets[0]
-        print("已检测到可接管的 Boss Edge 页面，无需重复打开新窗口。")
-        print(f"当前页面：{target['url']}")
-        print(f"调试地址：{target['address']}")
-        print(f"资料目录：{profile_dir}")
+        _notify(
+            "Boss登录浏览器",
+            "已检测到可接管的 Boss Edge 页面，无需重复打开新窗口。\n"
+            f"当前页面：{target['url']}\n"
+            f"调试地址：{target['address']}\n"
+            f"资料目录：{profile_dir}",
+        )
         return
     existing_address = _read_debugger_address_from_user_data_dir(profile_dir)
     if existing_address:
         if _open_boss_in_existing_edge(profile_dir) and _wait_for_boss_target(
             profile_dir
         ):
-            print("已在当前 Boss 专用 Edge 中打开登录页面。")
-            print(f"当前页面：{GEEK_LOGIN_URL}")
-            print(f"调试地址：{existing_address}")
-            print(f"资料目录：{profile_dir}")
+            _notify(
+                "Boss登录浏览器",
+                "已在当前 Boss 专用 Edge 中打开登录页面。\n"
+                f"当前页面：{GEEK_LOGIN_URL}\n"
+                f"调试地址：{existing_address}\n"
+                f"资料目录：{profile_dir}",
+            )
             return
         raise RuntimeError(
             "已找到 Boss 专用 Edge，但无法在其中打开 Boss 页面。"
@@ -170,11 +215,14 @@ def main() -> None:
     other_targets = discover_edge_debug_targets(host_filter=ZHIPIN_HOST)
     if other_targets and not args.force_new:
         target = other_targets[0]
-        print("已检测到其它 Edge 资料目录中的 Boss 页面，未重复打开新窗口。")
-        print(f"当前页面：{target.url}")
-        print(f"调试地址：{target.debugger_address}")
-        print("如需切换到 163 资料目录，请先关闭该 Boss Edge 窗口后重试。")
-        print("确需并行打开时可加参数：--force-new")
+        _notify(
+            "Boss登录浏览器",
+            "已检测到其它 Edge 资料目录中的 Boss 页面，未重复打开新窗口。\n"
+            f"当前页面：{target.url}\n"
+            f"调试地址：{target.debugger_address}\n"
+            "如需切换到 Boss 专用资料目录，请先关闭该 Boss Edge 窗口后重试。\n"
+            "确需并行打开时可加参数：--force-new",
+        )
         return
     debug_port = _available_debug_port()
     # Chromium 会在 remote-debugging-port=0 时主动暴露自动化标记；Boss 的安全
@@ -199,11 +247,15 @@ def main() -> None:
     ]
     creation_flags = (
         subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        | getattr(subprocess, "CREATE_NO_WINDOW", 0)
     )
     subprocess.Popen(
         command,
         creationflags=creation_flags,
         close_fds=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     if not _wait_for_debugger(debug_port):
         raise RuntimeError(
@@ -221,9 +273,12 @@ def main() -> None:
                 "Edge 已启动，但 Boss 页面未成功打开。"
                 "请在当前专用 Edge 中手动打开 https://www.zhipin.com/ 后重试。"
             )
-    print(f"已启动 Boss 登录专用 Edge：{GEEK_LOGIN_URL}")
-    print(f"调试地址：{debugger_address}")
-    print(f"资料目录：{profile_dir}")
+    _notify(
+        "Boss登录浏览器",
+        f"已启动 Boss 登录专用 Edge：{GEEK_LOGIN_URL}\n"
+        f"调试地址：{debugger_address}\n"
+        f"资料目录：{profile_dir}",
+    )
 
 
 if __name__ == "__main__":

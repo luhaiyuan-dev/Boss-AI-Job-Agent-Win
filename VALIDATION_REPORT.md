@@ -2,8 +2,8 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.3`
-- 验证日期：2026-08-04
+- 项目版本：`0.1.4`
+- 验证日期：2026-08-08
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
 
@@ -16,17 +16,41 @@
 ```powershell
 python -m pytest tests -q
 python -m compileall -q boss_assistant tests run_control_panel.py tools
-python -m pip check
+.\.venv\Scripts\python.exe -m pip check
 ```
 
 结果：
 
-- 测试：`120 passed`
+- 测试：`122 passed`
 - Python 编译检查：通过
-- 已安装依赖一致性：`No broken requirements found`
+- 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
 
 `ruff` 尚未安装在当前环境，因此没有把静态检查伪装成已通过；项目已新增 `requirements-dev.txt`，安装后可执行 README 中的静态检查命令。
+
+打包使用的系统 Python 中另有一个不属于本项目依赖清单的全局 FastAPI/Starlette 版本冲突，因此没有把系统环境的 `pip check` 写成通过；该冲突未影响本次 PyInstaller 构建，项目 `.venv` 检查通过。
+
+## 0.1.4 EXE 闪窗与图标验证
+
+根因与修复：
+
+- 两个 EXE 本身已经是 PE GUI 子系统，但 `discover_edge_debug_targets()` 会通过 `powershell.exe` 读取 Edge 命令行。求职助手 GUI 在登录浏览器不可用时每 5 秒重试一次求职意向预读，因此控制台子进程会按固定间隔短暂显示空窗口；关闭 Edge 后的下一轮探测也会触发同一路径。
+- Edge 进程枚举现在显式使用 Windows `CREATE_NO_WINDOW`；登录器复用/启动 Edge 时同时关闭标准输入输出错误句柄，并组合无窗口、脱离父进程和新进程组标志。
+- 新增回归测试，直接断言两个外部进程调用路径携带无窗口标志，且登录器三个标准句柄均为 `DEVNULL`。
+
+图标结果：
+
+- 两张最终透明 PNG 源图保存于 `assets/icons/`，四角 alpha 均为 0；配色为浅天蓝/湖蓝、白色，并分别使用珊瑚橙和暖黄色强调色，不含紫黑深蓝主题。
+- `tools/make_icons.py` 每次从 PNG 源图生成 ICO；两个 ICO 均实际包含 16、24、32、48、64、128、256 共 7 个尺寸，且四角保持透明。
+- PyInstaller 构建脚本对两个入口均保留 `--windowed`，并将新 ICO 分别嵌入对应 EXE；GUI 窗口图标也从同一求职助手 ICO 加载。
+
+实际产物验证：
+
+- `Boss登录浏览器.exe`：67,160,515 字节，SHA-256 `68EC783C2C2CEF6BE859A00C3FD94BDE3ABCD87E3CB7A200E2A55D41F475402A`。
+- `Boss求职助手.exe`：68,352,219 字节，SHA-256 `D79EE4EFEEA911D46F299B7B9CBFFFD7EE64CA43C0FEA339B98D98FFCF766A29`。
+- 解析两个 EXE 的 PE Optional Header，Subsystem 均为 `2`（Windows GUI）。从两个 EXE 实际提取的关联图标分别为新的公文包星芒和浏览器钥匙孔图标。
+- 首轮同时启动两个 EXE 并以 40ms 间隔监测 24 秒，覆盖多轮 5 秒 GUI 求职意向重试，新增 `ConsoleWindowClass` 数量为 0。
+- 第二轮使用隔离临时 Profile 强制执行“登录器启动 Edge → CDP `Browser.close` 关闭 → 继续监测”，以 40ms 间隔监测 28 秒，新增 `ConsoleWindowClass` 数量仍为 0；测试未读取或修改现有登录资料，临时 Profile 已移入回收站。
 
 ## Win-Web 离线部署包验证
 

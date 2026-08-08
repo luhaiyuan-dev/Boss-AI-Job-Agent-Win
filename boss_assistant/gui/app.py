@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import queue
 import re
+import sys
 import threading
 import tkinter as tk
 from dataclasses import asdict, replace
@@ -254,10 +255,30 @@ def format_run_completion(
     return "运行完成", f"运行记录：{log_path}"
 
 
+def _set_window_icon(window: "tk.Tk") -> None:
+    """Windows 下把应用图标设为窗口图标；图标缺失时静默跳过。"""
+
+    try:
+        if getattr(sys, "frozen", False):
+            candidate = Path(sys._MEIPASS) / "icons" / "boss_assistant.ico"
+        else:
+            candidate = (
+                Path(__file__).resolve().parent.parent.parent
+                / "assets"
+                / "icons"
+                / "boss_assistant.ico"
+            )
+        if candidate.is_file():
+            window.iconbitmap(str(candidate))
+    except Exception:
+        pass
+
+
 class BossControlPanel(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
+        _set_window_icon(self)
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         work_left, work_top, work_right, work_bottom = _primary_work_area(

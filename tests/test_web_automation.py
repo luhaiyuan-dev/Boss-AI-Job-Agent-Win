@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from datetime import datetime, timedelta, timezone
 from http.client import IncompleteRead
 from pathlib import Path
@@ -57,6 +58,7 @@ from boss_assistant.browser.driver import (
     EdgeBrowser,
     ElementNotFoundError,
     LoginRequiredError,
+    _running_edge_command_lines,
 )
 from boss_assistant.gui.app import (
     BossControlPanel,
@@ -117,6 +119,42 @@ def test_project_documents_match_package_version_and_protect_resume_pdf() -> Non
     assert f"项目版本：`{__version__}`" in validation
     assert "resume_inbox/*" in gitignore
     assert "!resume_inbox/README.md" in gitignore
+
+
+def test_edge_process_probe_never_creates_a_console_window() -> None:
+    completed = SimpleNamespace(returncode=0, stdout="")
+    with patch(
+        "boss_assistant.browser.driver.subprocess.run",
+        return_value=completed,
+    ) as run_process:
+        _running_edge_command_lines()
+
+    assert run_process.call_args.kwargs["creationflags"] == getattr(
+        subprocess,
+        "CREATE_NO_WINDOW",
+        0,
+    )
+
+
+def test_login_launcher_reuses_edge_without_a_console_window(tmp_path: Path) -> None:
+    from tools import open_login_edge
+
+    completed = SimpleNamespace(returncode=0)
+    with (
+        patch.object(open_login_edge, "locate_edge", return_value=Path("msedge.exe")),
+        patch.object(
+            open_login_edge.subprocess,
+            "run",
+            return_value=completed,
+        ) as run_process,
+    ):
+        assert open_login_edge._open_boss_in_existing_edge(tmp_path)
+
+    kwargs = run_process.call_args.kwargs
+    assert kwargs["stdin"] is subprocess.DEVNULL
+    assert kwargs["stdout"] is subprocess.DEVNULL
+    assert kwargs["stderr"] is subprocess.DEVNULL
+    assert kwargs["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def test_gui_defaults_example_is_parseable_and_has_no_real_password() -> None:
