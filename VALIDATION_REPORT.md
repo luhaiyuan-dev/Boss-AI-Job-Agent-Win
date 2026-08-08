@@ -2,7 +2,7 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.4`
+- 项目版本：`0.1.5`
 - 验证日期：2026-08-08
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
@@ -21,7 +21,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`122 passed`
+- 测试：`123 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
@@ -29,6 +29,16 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 `ruff` 尚未安装在当前环境，因此没有把静态检查伪装成已通过；项目已新增 `requirements-dev.txt`，安装后可执行 README 中的静态检查命令。
 
 打包使用的系统 Python 中另有一个不属于本项目依赖清单的全局 FastAPI/Starlette 版本冲突，因此没有把系统环境的 `pip check` 写成通过；该冲突未影响本次 PyInstaller 构建，项目 `.venv` 检查通过。
+
+## 0.1.5 Explorer 图标缓存修复
+
+- 从两个 EXE 直接提取关联图标，均为 0.1.4 起使用的新浅蓝图标；再通过 Windows Shell `SHGetFileInfo` 读取 Explorer 实际解析结果，仍得到相同的新图标。由此排除 ICO 生成或 EXE 资源嵌入失败。
+- 根因是已打开的 `explorer.exe` 进程仍持有同一路径旧 EXE 的内存图像列表；仅删除旧文件再重建，不能保证当前文件夹窗口主动失效该条目。
+- `tools/build_exe.ps1` 构建结束后现在会对两个绝对 EXE 路径调用 `SHChangeNotify(SHCNE_UPDATEITEM, SHCNF_PATHW, ...)`，并执行 `ie4uinit.exe -show`。刷新只针对文件显示，不删除全局图标或缩略图缓存数据库。
+- 新增回归测试，锁定两个 EXE 都必须发送定向刷新通知，并保留系统图标显示刷新命令。
+- 使用修改后的脚本完成 0.1.5 全量构建，末尾 Shell 刷新步骤执行成功且未产生警告；随后重启一次 Explorer 并重新打开项目目录，清除了修复前已经存在的旧内存图标。
+- Explorer 重启后再次从两个 EXE 提取关联图标，并通过 Shell `SHGetFileInfo` 获取文件夹所用图标；求职助手和登录浏览器两组 RGBA 像素均完全一致。两个 EXE 的 PE Subsystem 仍为 `2`。
+- 当前 `Boss登录浏览器.exe` 为 67,161,602 字节，SHA-256 `4DFA1178FF2C5C7703BB8D9A7BA2D288E55DD5C10C50368AD9FCCB3FB89DA7D9`；`Boss求职助手.exe` 为 68,350,221 字节，SHA-256 `04E20DDB8EA43070608CBF288C293466E560D1FDA14CC8E99355FB4C054A3565`。
 
 ## 0.1.4 EXE 闪窗与图标验证
 

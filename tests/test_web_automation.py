@@ -157,6 +157,16 @@ def test_login_launcher_reuses_edge_without_a_console_window(tmp_path: Path) -> 
     assert kwargs["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
+def test_exe_build_notifies_explorer_to_refresh_both_icons() -> None:
+    script = Path("tools/build_exe.ps1").read_text(encoding="utf-8-sig")
+
+    assert "SHCNE_UPDATEITEM" in script
+    assert "SHCNF_PATHW" in script
+    assert 'Update-ExplorerIcon (Join-Path $ProjectRoot "Boss登录浏览器.exe")' in script
+    assert 'Update-ExplorerIcon (Join-Path $ProjectRoot "Boss求职助手.exe")' in script
+    assert 'System32\\ie4uinit.exe' in script
+
+
 def test_gui_defaults_example_is_parseable_and_has_no_real_password() -> None:
     from boss_assistant.gui.app import parse_gui_defaults
 

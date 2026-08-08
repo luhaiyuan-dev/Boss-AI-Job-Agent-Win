@@ -1,6 +1,6 @@
 # Boss 求职助手控制台（Windows Web）
 
-当前版本：`0.1.4`
+当前版本：`0.1.5`
 
 本项目通过登录专用 Microsoft Edge 的最小原生 CDP 通道读取 Boss直聘 Web 页面，结合本地 PDF 简历和大模型审核岗位，并在 Tkinter 控制台中完成筛选、招呼语生成、受控填充/发送、未读消息巡检、断点保存和结果统计。
 
@@ -211,6 +211,8 @@ powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
 
 图标源图位于 `assets/icons/`：清新天蓝底的“白色公文包 + 珊瑚橙星芒”代表求职助手，“白色浏览器 + 暖黄色钥匙孔”代表登录浏览器。`tools/make_icons.py` 会裁切透明空白并生成含 16/24/32/48/64/128/256 像素的 ICO；打包脚本每次都会从源图重建，确保修改图标后不会继续使用旧产物。
 
+打包结束后，脚本会通过 Windows Shell 定向通知刷新两个 EXE 的图标，并调用系统图标显示刷新。这样即使保持项目文件夹窗口打开，同路径重建产物也不应继续显示旧图标；不需要手动删除全局 `iconcache_*.db`。
+
 **exe 是打包时刻代码与依赖的冻结快照**：每次修改源码（修复 BUG、优化升级）后必须重新执行上述打包命令，两个 exe 才会包含新改动；打包不会修改源码，命令行启动方式始终可用。exe 均不进入版本控制，重新打包会覆盖旧产物。
 
 ## 验证
@@ -222,7 +224,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 python -m ruff check boss_assistant tests run_control_panel.py tools
 ```
 
-当前 `0.1.4` 基线、EXE 无闪窗及离线部署校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
+当前 `0.1.5` 基线、EXE 无闪窗及图标缓存校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
 
 ## 安全边界与已知限制
 

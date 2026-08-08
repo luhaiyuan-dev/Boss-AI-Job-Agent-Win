@@ -63,8 +63,56 @@ function Invoke-PyInstaller {
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller 构建失败：$Name" }
 }
 
+function Update-ExplorerIcon {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not ("ExplorerIconRefresh" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class ExplorerIconRefresh
+{
+    // SHCNE_UPDATEITEM + SHCNF_PATHW：只让 Shell 失效指定文件的图标，
+    // 不删除用户的全局缩略图/图标缓存数据库。
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern void SHChangeNotify(
+        uint eventId,
+        uint flags,
+        string item1,
+        IntPtr item2
+    );
+}
+"@
+    }
+
+    $resolved = [IO.Path]::GetFullPath($Path)
+    [ExplorerIconRefresh]::SHChangeNotify(
+        0x00002000,  # SHCNE_UPDATEITEM
+        0x0005,      # SHCNF_PATHW
+        $resolved,
+        [IntPtr]::Zero
+    )
+}
+
 Invoke-PyInstaller -Name "Boss登录浏览器" -Entry "tools\open_login_edge.py" -Windowed -Icon "assets\icons\boss_login.ico"
 Invoke-PyInstaller -Name "Boss求职助手" -Entry "run_control_panel.py" -Windowed -Icon "assets\icons\boss_assistant.ico"
+
+# Explorer 会按完整路径长期缓存 EXE 图标；即使文件已删除后重建，当前
+# explorer.exe 的内存图像列表仍可能继续显示旧图。构建后主动广播两个
+# 文件的定向更新，再让系统刷新图标显示，无需清空用户全部缓存。
+Update-ExplorerIcon (Join-Path $ProjectRoot "Boss登录浏览器.exe")
+Update-ExplorerIcon (Join-Path $ProjectRoot "Boss求职助手.exe")
+try {
+    $iconRefresh = Start-Process `
+        -FilePath (Join-Path $env:SystemRoot "System32\ie4uinit.exe") `
+        -ArgumentList "-show" `
+        -WindowStyle Hidden `
+        -PassThru
+    $iconRefresh.WaitForExit(5000) | Out-Null
+} catch {
+    Write-Warning "系统图标刷新命令执行失败；EXE 已构建完成，可在资源管理器中按 F5。"
+}
 
 Write-Host "`n构建完成，产物："
 Get-Item "Boss登录浏览器.exe", "Boss求职助手.exe" | Select-Object Name, @{N="大小MB"; E={[math]::Round($_.Length / 1MB, 1)}}, LastWriteTime
