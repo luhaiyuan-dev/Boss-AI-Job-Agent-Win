@@ -49,7 +49,7 @@ function Invoke-PyInstaller {
         $arguments += "--windowed"
         # GUI 窗口图标数据文件（frozen 下从 _MEIPASS/icons 读取）。
         $arguments += "--add-data"
-        $arguments += "$(Join-Path $ProjectRoot 'assets\icons\boss_assistant.ico');icons"
+        $arguments += "$(Join-Path $ProjectRoot 'assets\icons\official\boss_assistant.ico');icons"
     }
     $arguments += $Entry
     # 先删除旧产物再写入：全新文件会强制 Explorer 重新提取图标，
@@ -95,8 +95,8 @@ public static class ExplorerIconRefresh
     )
 }
 
-Invoke-PyInstaller -Name "Boss登录浏览器" -Entry "tools\open_login_edge.py" -Windowed -Icon "assets\icons\boss_login.ico"
-Invoke-PyInstaller -Name "Boss求职助手" -Entry "run_control_panel.py" -Windowed -Icon "assets\icons\boss_assistant.ico"
+Invoke-PyInstaller -Name "Boss登录浏览器" -Entry "tools\open_login_edge.py" -Windowed -Icon "assets\icons\official\boss_login.ico"
+Invoke-PyInstaller -Name "Boss求职助手" -Entry "run_control_panel.py" -Windowed -Icon "assets\icons\official\boss_assistant.ico"
 
 # Explorer 会按完整路径长期缓存 EXE 图标；即使文件已删除后重建，当前
 # explorer.exe 的内存图像列表仍可能继续显示旧图。构建后主动广播两个

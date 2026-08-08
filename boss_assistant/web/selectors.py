@@ -32,6 +32,7 @@ from boss_assistant.automation.models import (
     JobIntentData,
 )
 from boss_assistant.automation.requirements import degree_level
+from boss_assistant.paths import runtime_root
 
 
 class WebSelectionError(RuntimeError):
@@ -330,11 +331,15 @@ _KANZHUN_DIGIT_TRANSLATION = str.maketrans(
 )
 
 
-def load_selector_overrides(path: str | Path = "config/web_selectors.local.json") -> None:
+def load_selector_overrides(path: str | Path | None = None) -> None:
     """把本地覆盖文件整组合并进 SELECTORS（每个键的候选列表整体替换）。"""
 
     global _OVERRIDE_LOADED
-    override_path = Path(path)
+    override_path = (
+        Path(path)
+        if path is not None
+        else runtime_root() / "config" / "web_selectors.local.json"
+    )
     if not override_path.exists():
         _OVERRIDE_LOADED = True
         return

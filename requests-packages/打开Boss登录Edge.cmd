@@ -1,15 +1,11 @@
 @echo off
 chcp 65001 >nul
 set "PROJECT_DIR=%~dp0.."
-set "PYTHON=%PROJECT_DIR%\.venv\Scripts\python.exe"
-if not exist "%PYTHON%" (
-  echo 未找到项目虚拟环境。请先双击 requests-packages\一键部署.cmd。
+set "LOGIN_EXE=%PROJECT_DIR%\Boss登录浏览器.exe"
+if not exist "%LOGIN_EXE%" (
+  echo 未找到 Boss登录浏览器.exe。
+  echo 请把两个 EXE 复制到 requests-packages 的父目录后重试。
   pause
   exit /b 1
 )
-cd /d "%PROJECT_DIR%"
-"%PYTHON%" "%PROJECT_DIR%\tools\open_login_edge.py"
-set "EXIT_CODE=%ERRORLEVEL%"
-echo.
-if not "%EXIT_CODE%"=="0" pause
-exit /b %EXIT_CODE%
+start "Boss 登录浏览器" "%LOGIN_EXE%"

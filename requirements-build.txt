@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# 仅用于开发机生成Nuitka EXE；不会安装到新电脑，也不会放进离线部署包。
+Nuitka==4.1.3
+ordered-set>=4.1,<5
+zstandard>=0.23,<1
+Pillow>=12,<13

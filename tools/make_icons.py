@@ -1,9 +1,9 @@
-"""从项目源图生成 Boss 求职助手的透明多尺寸 Windows 图标。
+"""从正式源图生成 Boss 求职助手的透明多尺寸 Windows 图标。
 
-- Boss求职助手.exe：清新天蓝底 + 白色公文包 + 珊瑚橙智能星芒。
-- Boss登录浏览器.exe：清新湖蓝底 + 白色浏览器 + 暖黄色钥匙孔。
+- Boss求职助手.exe：白色圆角底 + 四向 AI 罗盘 + 暖色智能星芒。
+- Boss登录浏览器.exe：白色圆角底 + 蓝青连接环 + 红橙连接节点。
 
-源图保存在 ``assets/icons/*.png``，产物为同目录下的 ``*.ico``。
+源图保存在 ``assets/icons/official/*.png``，产物为同目录下的 ``*.ico``。
 用法：python tools/make_icons.py
 """
 
@@ -13,9 +13,8 @@ from pathlib import Path
 
 from PIL import Image
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ICON_DIR = PROJECT_ROOT / "assets" / "icons"
+ICON_DIR = PROJECT_ROOT / "assets" / "icons" / "official"
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 
