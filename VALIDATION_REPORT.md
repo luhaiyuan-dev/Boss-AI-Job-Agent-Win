@@ -2,7 +2,7 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.6`
+- 项目版本：`0.1.7`
 - 验证日期：2026-08-09
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
@@ -21,7 +21,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`130 passed`
+- 测试：`132 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
@@ -29,6 +29,16 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 `ruff` 已安装；本次新增的运行时路径、图标与字符串加固工具单独检查通过。全仓审计仍检出 179 条既有风格问题，因此没有把全仓 Ruff 伪装成通过，也没有借本次打包升级扩大修改范围。
 
 构建和测试统一使用项目 `.venv`，`pip check` 返回 `No broken requirements found`。
+
+## 0.1.7 MySQL onefile 连接兼容修复
+
+- 本机 `MYSQL80` 服务处于 Running/Automatic，`127.0.0.1:3306` 正在监听且 TCP 探测成功；外置配置所需字段均存在（验证过程不输出用户名、密码或 API Key）。
+- 源码环境使用同一份外置配置时，mysql-connector-python 9.7.0 的 C 扩展与纯 Python 实现均能连接并执行 `SELECT 1`，排除了服务未启动、端口不可达和凭据错误。
+- 使用 Python 3.13、Nuitka onefile 和正式相同的 `--include-package=mysql.connector` 构建隔离探针后，C 扩展稳定复现 `RuntimeError: Failed raising error.`，而同一 EXE 内切换 `use_pure=True` 即连接成功。故障来自 `_mysql_connector.pyd` 在该打包组合中的异常转换路径，不是 MySQL 环境部署失败。
+- 正式持久化连接现固定传入 `use_pure=True`；新增回归测试锁定建库前/建库后两条连接路径均不得回退 C 扩展，同时验证底层错误上下文仍会保留。该改动不读取或写入 API Key，也不改变数据库地址、账号、密码和表结构。
+- 两个正式 EXE 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建，PE 文件版本与产品版本均为 `0.1.7.0`。加固构建副本含 `use_pure=True`，主程序 Nuitka 报告含 `boss_assistant.automation.mysql_store`，证明修复进入正式产物。
+- `Boss求职助手.exe`：27,720,704 字节，SHA-256 `7CB5B9052E1216C7AE51F50570DF9D7913A9642BE264A7D9D21478192CDA3060`；`Boss登录浏览器.exe`：14,175,744 字节，SHA-256 `A2EC25DEC406FD9F1E8D1ADFA02DA200FA93E58BEEE72AFB2AF45B8A6F642AED`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.7` 且响应正常；未点击“开始”，随后关闭父/子进程。隔离 onefile 探针再次得到 C 扩展 `Failed raising error.`、纯 Python 路径 `connected=True`，与正式修复选择一致。
 
 ## 0.1.6 Nuitka、外置配置与环境包升级
 

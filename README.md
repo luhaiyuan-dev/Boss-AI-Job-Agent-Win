@@ -1,6 +1,6 @@
 # Boss 求职助手控制台（Windows Web）
 
-当前版本：`0.1.6`
+当前版本：`0.1.7`
 
 本项目通过登录专用 Microsoft Edge 的最小原生 CDP 通道读取 Boss直聘 Web 页面，结合本地 PDF 简历和大模型审核岗位，并在 Tkinter 控制台中完成筛选、招呼语生成、受控填充/发送、未读消息巡检、断点保存和结果统计。
 
@@ -230,7 +230,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 python -m ruff check boss_assistant tests run_control_panel.py tools
 ```
 
-当前 `0.1.6` 基线、Nuitka 构建与环境包校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
+当前 `0.1.7` 基线、Nuitka 构建与环境包校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
 
 ## 安全边界与已知限制
 

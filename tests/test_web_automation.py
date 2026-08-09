@@ -30,6 +30,11 @@ from boss_assistant.automation.models import (
     JobExpectation,
     JobIntentData,
 )
+from boss_assistant.automation.mysql_store import (
+    AutomationMySqlStore,
+    MySqlConfig,
+    MySqlStoreError,
+)
 from boss_assistant.automation.policy import (
     card_rejection_reason,
     card_review_rejection_reason,
@@ -267,6 +272,45 @@ def test_win_offline_bundle_manifest_matches_files_and_has_no_python_runtime() -
         assert file_path.is_file(), package["path"]
         assert file_path.stat().st_size == package["bytes"]
         assert re.fullmatch(r"[0-9A-F]{64}", package["sha256"])
+
+
+class _RecordingMySqlConnector:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    def connect(self, **arguments: object) -> object:
+        self.calls.append(arguments)
+        if self.error is not None:
+            raise self.error
+        return object()
+
+
+def test_mysql_store_forces_pure_python_connector_for_nuitka_onefile() -> None:
+    connector = _RecordingMySqlConnector()
+    store = AutomationMySqlStore(
+        MySqlConfig("127.0.0.1", 3306, "test_user", "test_password", "test_db"),
+        connector=connector,
+    )
+
+    store._connect(with_database=False)
+    store._connect(with_database=True)
+
+    assert connector.calls[0]["use_pure"] is True
+    assert "database" not in connector.calls[0]
+    assert connector.calls[1]["use_pure"] is True
+    assert connector.calls[1]["database"] == "test_db"
+
+
+def test_mysql_store_preserves_connector_error_context() -> None:
+    connector = _RecordingMySqlConnector(error=RuntimeError("authentication failed"))
+    store = AutomationMySqlStore(
+        MySqlConfig("127.0.0.1", 3306, "test_user", "test_password", "test_db"),
+        connector=connector,
+    )
+
+    with pytest.raises(MySqlStoreError, match="MySQL 连接失败：authentication failed"):
+        store._connect(with_database=True)
 
 
 def test_win_offline_setup_installs_only_host_environment_and_writes_templates() -> None:
