@@ -25,6 +25,7 @@
 4. 编辑父目录 `config\gui_defaults.txt` 和 `config\model_api.local.json`，填写当前电脑自己的凭据。
 5. 如使用 Codex 主导模式，双击 `安装Codex（可选）.cmd`。已有 Codex 会直接复用，不会降级或覆盖；登录仍由用户本人完成。
 6. 将两个 EXE 放到父目录，双击 `验证环境.cmd` 后按《首次使用向导》继续。
+7. 确认两个 EXE、环境和外置配置均可用后，如不再需要离线安装资源，可双击 `delete.cmd` 永久清理整个 `requests-packages`。
 
 部署和验证阶段不会打开 Boss、调用模型、填写草稿或发送消息/简历。
 
@@ -70,6 +71,17 @@ D:\BossJobAssistant\Navicat\17.3.11\
 6. 仅在配置不存在时复制脱敏模板；已有配置绝不覆盖。
 
 模板中的 API Key、MySQL 用户名和密码故意为空；API 模型保留为 `deepseek-v4-flash`。本包不会复制 Boss/Codex 登录态、真实简历、MySQL 数据、Edge Profile 或 Navicat 许可证。
+
+## 部署完成后永久删除本包
+
+双击根目录 `delete.cmd` 后会立即执行，不再要求二次确认。删除器将：
+
+1. 确认目标确实是完整的 `requests-packages`，并拒绝磁盘根目录、链接/重解析点和源码开发目录。
+2. 对包内普通文件进行一次随机数据覆盖，使用 WriteThrough 写入并刷新到磁盘，再随机改名并永久删除。
+3. 绕过回收站删除所有子目录、`delete.cmd`、删除脚本自身以及整个 `requests-packages`。
+4. 保留父目录中的两个 EXE、`config`、`resume_inbox`，也保留已安装的 PowerShell、Edge、VC++、MySQL、Navicat 和 Codex。
+
+此过程不能撤销，也不能通过回收站恢复。它可以阻止常规撤销和普通文件恢复工具直接恢复原文件，但 Windows 软件无法对 SSD 磨损均衡、卷影副本、云同步、系统镜像或外部备份作绝对不可恢复保证；脚本不会擦除整块磁盘、删除系统还原点或破坏用户备份。删除期间不要关闭窗口、关机或拔出磁盘。
 
 ## Codex 检测和模型
 

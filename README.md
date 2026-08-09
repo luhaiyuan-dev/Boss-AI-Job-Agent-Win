@@ -41,6 +41,8 @@ requests-packages\一键部署.cmd
 requests-packages\验证环境.cmd
 ```
 
+确认环境、两个 EXE 和外置配置均可用后，可双击 `requests-packages\delete.cmd` 永久清理整个离线部署包。该入口无需二次确认，会逐文件覆盖并刷新后绕过回收站删除 `requests-packages`（包括自身），但不会删除已安装的软件、父目录 `config`、`resume_inbox` 或两个 EXE。SSD 磨损均衡、卷影副本、云同步及外部备份不属于本地脚本能够保证清除的范围。
+
 部署脚本会在父目录创建 `config` 和 `resume_inbox`；API Key、MySQL 用户名和密码故意留空。配置位置分别是：
 
 - API：目标根目录 `config/model_api.local.json`，保留模型 `deepseek-v4-flash`
@@ -51,7 +53,7 @@ Codex 主导模式固定使用 `gpt-5.5`；API 模式使用 JSON 中实际填写
 
 该一键部署流程已于 2026-08-08 在初始未安装 PowerShell 7 的干净 Windows Sandbox 完成验收；Navicat 可正常使用并成功连接新部署的 MySQL 数据库。验收未使用任何真实账号、密钥、简历或投递功能。
 
-部署包不含或复制源码、API Key、Codex/Boss 登录状态、MySQL 历史数据、Navicat 许可证、真实简历和 `data/edge_profile_boss/`。分发给新用户前请运行 `requests-packages/scripts/Build-Distribution.ps1` 创建“两个 EXE + 环境包”的脱敏副本，不要直接压缩开发目录。
+部署包不含或复制源码、API Key、Codex/Boss 登录状态、MySQL 历史数据、Navicat 许可证、真实简历和 `data/edge_profile_boss/`。分发给新用户前请运行 `requests-packages/scripts/Build-Distribution.ps1` 创建“两个 EXE + 环境包”的脱敏副本，不要直接压缩开发目录。`delete.cmd` 检测到 `.git` 或源码目录时会拒绝执行，避免误删开发项目。
 
 ### 已有 Python 环境手动安装
 

@@ -21,7 +21,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`129 passed`
+- 测试：`130 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
@@ -52,14 +52,17 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 - `requests-packages` 已移除 Python 安装器、`requirements-offline.txt` 和完整 wheelhouse；当前清单为 PowerShell 7.6.4 LTS、Edge、MySQL、VC++、Navicat、Codex 共 6 项，826,296,129 字节（788.02 MiB）。PowerShell ZIP 的 SHA-256 与官方发布清单一致；引导脚本解压后验证 `pwsh.exe`，再写入系统 PATH。
 - 一键部署仅安装或复用电脑环境，在父目录创建 `config`、`resume_inbox` 和两个外置配置模板；API Key、MySQL 用户名与密码为空，API 模型保留 `deepseek-v4-flash`。新装 MySQL 密码必须现场无回显输入并二次确认，至少 8 位。
 - 一键入口新增仅含 ASCII 的 PowerShell 引导脚本：先复用任意现有 PowerShell 7；没有时离线静默安装随包的 7.6.4 LTS，再强制由 `pwsh.exe` 执行正式部署。Windows PowerShell 5.1 只负责引导，不再解析中文主部署脚本。
+- 新增 `requests-packages\delete.cmd` 与 PowerShell 7 删除器：双击后无二次确认，先拒绝磁盘根目录、源码开发目录和链接/重解析点，再对普通文件随机覆盖、WriteThrough 写入、强制刷新、随机改名并绕过回收站删除；入口和脚本自身最后删除，整个 `requests-packages` 消失。删除范围明确不包含已安装的软件、父目录 `config`、`resume_inbox` 和两个 EXE，也不宣称能清除 SSD 磨损均衡、卷影副本、云同步或外部备份。
 - 正式 A 方案图标保存在 `assets/icons/official`。两张 PNG 为 1254×1254、四角 alpha 均为 0；两份 ICO 均含 16/20/24/28/32/36/40/48/56/64/72/80/96/128/256 共 15 个尺寸，Nuitka 日志确认分别嵌入两个 EXE。
 - 2026-08-09 根据 Windows 任务栏实拍继续定位小图层模糊：本机为 120 DPI（125%），Windows 实际请求 20×20 小图标和 40×40 大图标；上一轮 ICO 恰好缺少这两个尺寸，只能由 Shell 缩放相邻图层。继续检查正式 EXE 子进程后，`GetProcessDpiAwareness` 又确认其级别为 0（DPI unaware），Tk 创建的 96 DPI 窗口还会被 DWM 整体放大。新生成器补齐 100%–300% 常用 DPI 尺寸阶梯，将任务栏专用绘制范围扩展到 16–96 像素；进一步放大四色主体、把 28 像素以下的细星芒简化为实心菱形，并使用面积平均缩小避免 Lanczos 在高对比边缘产生振铃。GUI 在第一个 Tk HWND 创建前启用 System DPI Awareness，使 125% 屏幕直接加载原生 20/40 像素层。15 个尺寸和透明四角由回归测试逐层读取确认。
 - 两个 Nuitka onefile EXE 已重新构建，构建日志分别确认 `Adding 15 icon(s)`。主 EXE 再次启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.6` 且保持响应；通过任务栏窗口 `Shell_TrayWnd` 的实拍确认，40 像素原生层能够清晰显示圆角底板、放大的四向罗盘和中心星芒。完整 DPI-aware 窗口截图也确认右上角只剩“默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止”。测试只启动 GUI，未点击“开始”，随后关闭测试进程。
-- 5 个包含中文的部署 PowerShell 脚本均使用 UTF-8 BOM；新增引导脚本严格保持纯 ASCII、无需 BOM。6 个脚本全部同时通过 Windows PowerShell 5.1 与 PowerShell 7 语法解析。
+- 原有 5 个包含中文的部署 PowerShell 脚本继续使用 UTF-8 BOM，引导脚本严格保持纯 ASCII、无需 BOM，并同时通过 Windows PowerShell 5.1 与 PowerShell 7 语法解析。新增删除脚本使用 UTF-8 BOM、明确要求 PowerShell 7，并通过 PowerShell 7 语法解析。
 
 Windows Sandbox 功能已启用并完成干净机验收。首次连接中断由 Hyper-V Worker 事件 33101 定位为来宾虚拟 PCI 协议 `0x10006` 与宿主修订级别不兼容；在 `.wsb` 和宿主 Windows Sandbox 策略中禁用 vGPU，并经用户授权停止 Docker/WSL、重启 `vmcompute` 后，沙盒连接保持稳定。干净沙盒初始没有 PowerShell 7，一键入口成功校验并解压随包的 7.6.4 ZIP，再由 `pwsh.exe` 完成后续环境部署；6 项安装资源哈希全部通过。2026-08-08 用户在该沙盒中手动完成一键部署，确认 Navicat 可以正常使用，并通过 Navicat 成功连接新部署的 MySQL 数据库。验证全程未录入真实 API Key、Codex/Boss 登录信息或简历，也未执行投递。
 
 2026-08-09 进一步将可指定目录的软件改为跟随一键部署文件所在盘符：新装 PowerShell 7 使用 `盘符:\BossJobAssistant\PowerShell\7`，MySQL 程序、数据和 `my.ini` 使用 `盘符:\BossJobAssistant\MySQL`，Navicat 使用 `盘符:\BossJobAssistant\Navicat\17.3.11`。Edge 与 VC++ 运行库继续使用官方安装器的系统默认位置；检测到的既有软件不迁移。两个后续 CMD 入口增加部署盘 PowerShell 回退查找，避免环境变量尚未刷新时误报。该增量通过 PowerShell 5.1/7 语法解析、CMD 编码/换行回归和项目测试；此前干净沙盒验收使用的是修改前的系统盘路径，因此不将其表述为新盘符布局的实机安装证明。
+
+2026-08-09 在 `build/delete-tests` 的隔离副本执行永久删除验证：直接调用删除脚本时，包含 2 MiB 随机载荷、嵌套目录、入口和脚本自身的模拟 `requests-packages` 完整消失，退出码为 0，父目录外部标记文件保持存在；通过 `delete.cmd` 异步启动的第二个模拟包同样连同入口自身删除。第三个副本在父目录放置 `.git` 后返回退出码 1，部署包和载荷均未改变，证明源码保护先于覆盖删除。测试只作用于固定的 `build/delete-tests` 隔离目录，没有在真实 `requests-packages` 上运行删除器。
 
 ## 0.1.5 Explorer 图标缓存修复
 

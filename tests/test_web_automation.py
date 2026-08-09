@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import json
 import re
+import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from http.client import IncompleteRead
@@ -278,6 +279,10 @@ def test_win_offline_setup_installs_only_host_environment_and_writes_templates()
     bootstrap = (bundle / "scripts/Bootstrap-PowerShell.ps1").read_text(
         encoding="ascii"
     )
+    remover = (bundle / "scripts/Remove-DeploymentPackage.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    delete_launcher = (bundle / "delete.cmd").read_text(encoding="utf-8")
 
     assert "wheelhouse" not in setup
     assert "python-3" not in setup.casefold()
@@ -303,6 +308,23 @@ def test_win_offline_setup_installs_only_host_environment_and_writes_templates()
     assert "ProgramData" not in setup
     assert '/DIR="{0}"' in setup
     assert 'SetEnvironmentVariable(\n                "Path"' in bootstrap
+    assert 'start "" /b "%PWSH_EXE%"' in delete_launcher
+    assert "Remove-DeploymentPackage.ps1" in delete_launcher
+    assert "%~d0\\BossJobAssistant\\PowerShell\\7\\pwsh.exe" in delete_launcher
+    assert "%ProgramFiles%\\PowerShell\\7\\pwsh.exe" in delete_launcher
+    assert 'GetFileName($root) -ne "requests-packages"' in remover
+    assert 'Join-Path $parent ".git"' in remover
+    assert 'Join-Path $parent "boss_assistant"' in remover
+    assert "FileOptions]::WriteThrough" in remover
+    assert "RandomNumberGenerator" in remover
+    assert "$stream.Flush($true)" in remover
+    assert 'temporaryName = ".wipe-' in remover
+    assert "[IO.Directory]::Delete($root, $false)" in remover
+    assert "Clear-RecycleBin" not in remover
+    assert "cipher.exe" not in remover.casefold()
+    assert "Read-Host" not in remover
+    remover_bytes = (bundle / "scripts/Remove-DeploymentPackage.ps1").read_bytes()
+    assert remover_bytes.startswith(b"\xef\xbb\xbf")
     for launcher_name in ("验证环境.cmd", "安装Codex（可选）.cmd"):
         launcher = (bundle / launcher_name).read_text(encoding="utf-8")
         assert "%~d0\\BossJobAssistant\\PowerShell\\7\\pwsh.exe" in launcher
@@ -320,6 +342,55 @@ def test_win_offline_setup_installs_only_host_environment_and_writes_templates()
     assert api_template["api_key"] == ""
     assert "MySQL用户名：。" in gui_template
     assert "MySQL密码：。" in gui_template
+
+
+def test_deployment_package_remover_self_deletes_only_isolated_bundle(
+    tmp_path: Path,
+) -> None:
+    pwsh = shutil.which("pwsh.exe") or shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("PowerShell 7 is required for the deployment-package remover")
+
+    parent = tmp_path / "offline-distribution"
+    bundle = parent / "requests-packages"
+    scripts = bundle / "scripts"
+    installers = bundle / "installers" / "nested"
+    scripts.mkdir(parents=True)
+    installers.mkdir(parents=True)
+    shutil.copy2(
+        "requests-packages/scripts/Remove-DeploymentPackage.ps1",
+        scripts / "Remove-DeploymentPackage.ps1",
+    )
+    shutil.copy2("requests-packages/delete.cmd", bundle / "delete.cmd")
+    (bundle / "一键部署.cmd").write_text("@echo off\r\n", encoding="utf-8")
+    (bundle / "manifest.json").write_text("{}\n", encoding="utf-8")
+    (scripts / "Setup.ps1").write_text("# marker\n", encoding="utf-8")
+    (installers / "payload.bin").write_bytes(b"deployment-payload" * 131_072)
+    outside = parent / "must-remain.txt"
+    outside.write_text("keep", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            pwsh,
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(scripts / "Remove-DeploymentPackage.ps1"),
+            "-PackageRoot",
+            str(bundle),
+            "-NoCompletionPopup",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert not bundle.exists()
+    assert outside.read_text(encoding="utf-8") == "keep"
 
 
 def test_codex_provider_reuses_installed_logged_in_cli(tmp_path: Path) -> None:
