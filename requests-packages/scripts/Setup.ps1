@@ -9,6 +9,15 @@ param(
 $ErrorActionPreference = "Stop"
 $bundleRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = Split-Path -Parent $bundleRoot
+$deploymentDriveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($bundleRoot))
+if (-not $deploymentDriveRoot -or $deploymentDriveRoot -notmatch "^[A-Za-z]:\\$") {
+    throw "请先把requests-packages复制到本机磁盘，再运行一键部署。"
+}
+$deploymentDrive = New-Object IO.DriveInfo($deploymentDriveRoot)
+if ($deploymentDrive.DriveType -ne [IO.DriveType]::Fixed) {
+    throw "一键部署只支持本机固定磁盘；请先把requests-packages复制到本机硬盘。"
+}
+$environmentRoot = Join-Path $deploymentDriveRoot "BossJobAssistant"
 $installerRoot = Join-Path $bundleRoot "installers"
 $templateRoot = Join-Path $bundleRoot "templates"
 $logRoot = Join-Path $bundleRoot "logs"
@@ -129,6 +138,8 @@ try {
     }
 
     Write-Host "1/6 校验离线安装资源" -ForegroundColor Cyan
+    Write-Host "可自定义位置的软件将安装到：$environmentRoot" -ForegroundColor DarkGray
+    Write-Host "Edge和VC++运行库由Windows安装器使用系统默认位置。" -ForegroundColor DarkGray
     & (Join-Path $PSScriptRoot "Verify-Packages.ps1")
     if ($LASTEXITCODE -ne 0) { throw "离线安装包校验失败。" }
 
@@ -177,7 +188,7 @@ try {
         Write-Host "已按参数跳过 MySQL；之后请在配置中填写现有实例凭据。" -ForegroundColor Yellow
     } else {
         $serviceName = "BossJobAssistantMySQL"
-        $mysqlBase = Join-Path $env:ProgramData "BossJobAssistant\MySQL"
+        $mysqlBase = Join-Path $environmentRoot "MySQL"
         $mysqlHome = Join-Path $mysqlBase "mysql-8.0.36-winx64"
         $mysqlData = Join-Path $mysqlBase "data"
         $mysqlIni = Join-Path $mysqlBase "my.ini"
@@ -290,15 +301,20 @@ default-character-set=utf8mb4
             Write-Host "已检测到 $($navicat.DisplayName)，保持现有安装。" -ForegroundColor Green
         } else {
             $navicatInstaller = Join-Path $installerRoot "navicat-premium-17.3.11-en-x64.exe"
+            $navicatInstallRoot = Join-Path $environmentRoot "Navicat\17.3.11"
             $navicatProcess = Start-Process `
                 -FilePath $navicatInstaller `
                 -Wait `
                 -PassThru `
-                -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-")
+                -ArgumentList @(
+                    "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-",
+                    ('/DIR="{0}"' -f $navicatInstallRoot)
+                )
             if ($navicatProcess.ExitCode -notin @(0, 3010)) {
                 throw "Navicat 安装失败，退出码 $($navicatProcess.ExitCode)。"
             }
-            Write-Host "Navicat官方安装器已完成；未复制许可证或连接信息。" -ForegroundColor Green
+            Write-Host "Navicat官方安装器已完成：$navicatInstallRoot" -ForegroundColor Green
+            Write-Host "未复制许可证或连接信息。" -ForegroundColor Green
         }
     }
 

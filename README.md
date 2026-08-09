@@ -31,7 +31,7 @@
 
 ### 全新 Windows 电脑一键离线部署
 
-项目提供独立的 `requests-packages/` 环境包，其中包含 PowerShell 7.6.4 LTS、Edge 151.0.4129.59、MySQL 8.0.36、VC++ x64 运行库、Navicat 17.3.11 和可选 Codex CLI 0.133.0。正式 Nuitka EXE 已内置 Python 运行时和项目依赖，因此环境包不再安装 Python，也不含 wheelhouse 或源码。一键入口会复用任意现有 PowerShell 7；没有时先离线安装，再由 `pwsh.exe` 继续部署。
+项目提供独立的 `requests-packages/` 环境包，其中包含 PowerShell 7.6.4 LTS、Edge 151.0.4129.59、MySQL 8.0.36、VC++ x64 运行库、Navicat 17.3.11 和可选 Codex CLI 0.133.0。正式 Nuitka EXE 已内置 Python 运行时和项目依赖，因此环境包不再安装 Python，也不含 wheelhouse 或源码。一键入口会复用任意现有 PowerShell 7；没有时先离线安装，再由 `pwsh.exe` 继续部署。新装的 PowerShell 7、MySQL 和 Navicat 跟随一键部署文件所在盘符，Edge 和 VC++ 等系统组件保留 Windows 默认安装位置；现有软件不迁移。
 
 在新电脑上先把 `requests-packages` 复制到目标目录并运行部署，再把两个 EXE 复制到它的父目录。最终依次双击：
 

@@ -8,6 +8,16 @@ $bundleRoot = Split-Path -Parent $PSScriptRoot
 $archivePath = Join-Path $bundleRoot "installers\PowerShell-7.6.4-win-x64.zip"
 $expectedHash = "80832551C52809301E6071C8BAC977BEB5A2F1EC953EB4DB9F94DEB953333793"
 $setupPath = Join-Path $PSScriptRoot "Setup.ps1"
+$deploymentDriveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($bundleRoot))
+if (-not $deploymentDriveRoot -or $deploymentDriveRoot -notmatch "^[A-Za-z]:\\$") {
+    throw "requests-packages must be copied to a local drive before deployment."
+}
+$deploymentDrive = New-Object IO.DriveInfo($deploymentDriveRoot)
+if ($deploymentDrive.DriveType -ne [IO.DriveType]::Fixed) {
+    throw "requests-packages must be copied to a fixed local drive before deployment."
+}
+$environmentRoot = Join-Path $deploymentDriveRoot "BossJobAssistant"
+$bundledPowerShellRoot = Join-Path $environmentRoot "PowerShell\7"
 
 function Test-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -19,6 +29,10 @@ function Find-PowerShell7 {
     $command = Get-Command pwsh.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($command -and (Test-Path -LiteralPath $command.Source -PathType Leaf)) {
         return $command.Source
+    }
+    $bundledPath = Join-Path $bundledPowerShellRoot "pwsh.exe"
+    if (Test-Path -LiteralPath $bundledPath -PathType Leaf) {
+        return $bundledPath
     }
     $installedPath = Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"
     if (Test-Path -LiteralPath $installedPath -PathType Leaf) {
@@ -58,9 +72,10 @@ try {
         }
 
         Write-Host "PowerShell 7 was not found. Installing the bundled x64 LTS archive..." -ForegroundColor Cyan
-        $powerShellParent = Join-Path $env:ProgramFiles "PowerShell"
+        $powerShellParent = Split-Path -Parent $bundledPowerShellRoot
         $installRoot = Join-Path $powerShellParent "7"
         $stagingRoot = Join-Path $powerShellParent "7.installing"
+        New-Item -ItemType Directory -Path $powerShellParent -Force | Out-Null
         if (Test-Path -LiteralPath $installRoot) {
             throw "PowerShell 7 install directory already exists but pwsh.exe is unavailable: $installRoot"
         }

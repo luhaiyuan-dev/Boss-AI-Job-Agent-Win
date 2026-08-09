@@ -254,7 +254,18 @@ def test_win_offline_setup_installs_only_host_environment_and_writes_templates()
     assert "Test-PowerShell7" in bootstrap
     assert "Setup.ps1" in bootstrap
     assert "Expand-Archive" in bootstrap
+    assert 'Join-Path $deploymentDriveRoot "BossJobAssistant"' in bootstrap
+    assert "DriveType]::Fixed" in bootstrap
+    assert "DriveType]::Fixed" in setup
+    assert 'Join-Path $environmentRoot "PowerShell\\7"' in bootstrap
+    assert 'Join-Path $environmentRoot "MySQL"' in setup
+    assert 'Join-Path $environmentRoot "Navicat\\17.3.11"' in setup
+    assert "ProgramData" not in setup
+    assert '/DIR="{0}"' in setup
     assert 'SetEnvironmentVariable(\n                "Path"' in bootstrap
+    for launcher_name in ("验证环境.cmd", "安装Codex（可选）.cmd"):
+        launcher = (bundle / launcher_name).read_text(encoding="utf-8")
+        assert "%~d0\\BossJobAssistant\\PowerShell\\7\\pwsh.exe" in launcher
     for command_file in bundle.glob("*.cmd"):
         command_bytes = command_file.read_bytes()
         assert not command_bytes.startswith(b"\xef\xbb\xbf"), command_file.name

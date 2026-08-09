@@ -4,6 +4,8 @@ param()
 $ErrorActionPreference = "Continue"
 $bundleRoot = Split-Path -Parent $PSScriptRoot
 $projectRoot = Split-Path -Parent $bundleRoot
+$deploymentDriveRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($bundleRoot))
+$environmentRoot = Join-Path $deploymentDriveRoot "BossJobAssistant"
 $hostFailed = $false
 $manualSteps = @()
 $apiReady = $false
@@ -46,6 +48,8 @@ function Find-PowerShell7 {
     if ($command -and (Test-Path -LiteralPath $command.Source -PathType Leaf)) {
         return $command.Source
     }
+    $bundledPath = Join-Path $environmentRoot "PowerShell\7\pwsh.exe"
+    if (Test-Path -LiteralPath $bundledPath -PathType Leaf) { return $bundledPath }
     $installedPath = Join-Path $env:ProgramFiles "PowerShell\7\pwsh.exe"
     if (Test-Path -LiteralPath $installedPath -PathType Leaf) { return $installedPath }
     return $null

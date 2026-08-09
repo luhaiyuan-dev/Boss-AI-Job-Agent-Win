@@ -57,6 +57,8 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 Windows Sandbox 功能已启用并完成干净机验收。首次连接中断由 Hyper-V Worker 事件 33101 定位为来宾虚拟 PCI 协议 `0x10006` 与宿主修订级别不兼容；在 `.wsb` 和宿主 Windows Sandbox 策略中禁用 vGPU，并经用户授权停止 Docker/WSL、重启 `vmcompute` 后，沙盒连接保持稳定。干净沙盒初始没有 PowerShell 7，一键入口成功校验并解压随包的 7.6.4 ZIP，再由 `pwsh.exe` 完成后续环境部署；6 项安装资源哈希全部通过。2026-08-08 用户在该沙盒中手动完成一键部署，确认 Navicat 可以正常使用，并通过 Navicat 成功连接新部署的 MySQL 数据库。验证全程未录入真实 API Key、Codex/Boss 登录信息或简历，也未执行投递。
 
+2026-08-09 进一步将可指定目录的软件改为跟随一键部署文件所在盘符：新装 PowerShell 7 使用 `盘符:\BossJobAssistant\PowerShell\7`，MySQL 程序、数据和 `my.ini` 使用 `盘符:\BossJobAssistant\MySQL`，Navicat 使用 `盘符:\BossJobAssistant\Navicat\17.3.11`。Edge 与 VC++ 运行库继续使用官方安装器的系统默认位置；检测到的既有软件不迁移。两个后续 CMD 入口增加部署盘 PowerShell 回退查找，避免环境变量尚未刷新时误报。该增量通过 PowerShell 5.1/7 语法解析、CMD 编码/换行回归和项目测试；此前干净沙盒验收使用的是修改前的系统盘路径，因此不将其表述为新盘符布局的实机安装证明。
+
 ## 0.1.5 Explorer 图标缓存修复
 
 - 从两个 EXE 直接提取关联图标，均为 0.1.4 起使用的新浅蓝图标；再通过 Windows Shell `SHGetFileInfo` 读取 Explorer 实际解析结果，仍得到相同的新图标。由此排除 ICO 生成或 EXE 资源嵌入失败。

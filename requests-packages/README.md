@@ -20,7 +20,7 @@
 ## 最快用法
 
 1. 双击 `验证安装包.cmd`。
-2. 双击 `一键部署.cmd`，接受管理员权限提示。入口会先复用现有 PowerShell 7；未检测到时校验并解压官方 7.6.4 LTS 离线包，再用 `pwsh.exe` 执行正式部署。
+2. 双击 `一键部署.cmd`，接受管理员权限提示。入口会先复用现有 PowerShell 7；未检测到时校验并解压官方 7.6.4 LTS 离线包，再用 `pwsh.exe` 执行正式部署。可指定位置的软件默认跟随 `一键部署.cmd` 所在盘符。
 3. 新装 MySQL 时按提示输入并确认至少 8 位的 root 密码；输入不会回显，密码不会写入模板或日志。
 4. 编辑父目录 `config\gui_defaults.txt` 和 `config\model_api.local.json`，填写当前电脑自己的凭据。
 5. 如使用 Codex 主导模式，双击 `安装Codex（可选）.cmd`。已有 Codex 会直接复用，不会降级或覆盖；登录仍由用户本人完成。
@@ -43,11 +43,28 @@
 
 Navicat 是可选查看工具，随包只含官方未修改安装器，不含许可证、激活状态、连接或密码。
 
+## 安装磁盘与位置
+
+脚本从 `requests-packages` 的实际路径读取盘符。例如一键部署文件位于 `D:\某目录\requests-packages\一键部署.cmd`，可指定位置的软件会使用以下目录：
+
+```text
+D:\BossJobAssistant\PowerShell\7\
+D:\BossJobAssistant\MySQL\
+D:\BossJobAssistant\Navicat\17.3.11\
+```
+
+- PowerShell 7 ZIP、MySQL 程序和数据、Navicat 跟随一键部署文件所在的本机磁盘。
+- Edge 和 VC++ 运行库属于系统管理组件，继续由官方安装器使用 Windows 默认位置，通常在 C 盘。
+- 已检测到的现有软件保持原位置，不迁移、不覆盖、不降级。
+- `config`、`resume_inbox` 和日志仍按本文所述创建在部署目录中。
+- Codex 是独立可选安装，不属于一键部署；仍安装到当前 Windows 用户目录，以便保留用户级登录和权限边界。
+- 为保证 MySQL Windows 服务可靠运行，请先把 `requests-packages` 复制到带盘符的本机磁盘；不从 UNC 网络共享直接部署。
+
 ## 一键部署会做什么
 
-1. 先检测 PowerShell 7；不存在时校验并离线安装随包的 7.6.4 LTS，然后只用 PowerShell 7 执行正式部署。
+1. 先检测 PowerShell 7；不存在时校验并离线安装随包的 7.6.4 LTS 到当前部署盘，然后只用 PowerShell 7 执行正式部署。
 2. 校验全部离线安装资源。
-3. 安装或复用 Edge、VC++ x64 运行库、MySQL 和 Navicat。
+3. 安装或复用 Edge、VC++ x64 运行库、MySQL 和 Navicat；其中 MySQL 和 Navicat 新安装时跟随当前部署盘。
 4. 新装 MySQL 时仅监听 `127.0.0.1:3306`，创建 `boss_job_assistant` 数据库，并要求用户现场设置密码。
 5. 在 `requests-packages` 的父目录创建 `config` 和 `resume_inbox`。
 6. 仅在配置不存在时复制脱敏模板；已有配置绝不覆盖。
