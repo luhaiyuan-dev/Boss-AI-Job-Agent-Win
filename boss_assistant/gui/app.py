@@ -265,8 +265,26 @@ def _set_window_icon(window: "tk.Tk") -> None:
         pass
 
 
+def _enable_windows_dpi_awareness() -> None:
+    """在创建 Tk 窗口前启用系统 DPI 感知，避免图标和界面被 DWM 二次放大。"""
+
+    try:
+        # PROCESS_SYSTEM_DPI_AWARE。必须早于第一个 HWND；125% 缩放时这会让
+        # Tk 直接请求 40×40 大图标，而不是先取 32×32 再由 Windows 放大。
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # Windows 7 兼容回退。
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
 class BossControlPanel(tk.Tk):
     def __init__(self) -> None:
+        _enable_windows_dpi_awareness()
         super().__init__()
         self.title(APP_TITLE)
         _set_window_icon(self)
@@ -421,8 +439,7 @@ class BossControlPanel(tk.Tk):
         ttk.Label(
             header,
             text=(
-                "默认实际发送 · 每步随机等待 1-2 秒 · "
-                "自动查看未读消息 · 达到目标公司数立即停止"
+                "默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止"
             ),
             style="HeaderSub.TLabel",
         ).pack(side="right", pady=(10, 0))

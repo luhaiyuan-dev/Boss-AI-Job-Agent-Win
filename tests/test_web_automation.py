@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 
 from boss_assistant import __version__
 from boss_assistant.automation.api_provider import (
@@ -178,14 +179,53 @@ def test_exe_build_notifies_explorer_to_refresh_both_icons() -> None:
 
 def test_formal_concept_a_icons_are_preserved_for_reuse() -> None:
     icon_root = Path("assets/icons/official")
+    taskbar_sizes = (16, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96)
+    expected_sizes = {
+        *((size, size) for size in taskbar_sizes),
+        (128, 128),
+        (256, 256),
+    }
 
     for stem in ("boss_assistant", "boss_login"):
         assert (icon_root / f"{stem}.png").stat().st_size > 10_000
-        assert (icon_root / f"{stem}.ico").stat().st_size > 10_000
+        icon_path = icon_root / f"{stem}.ico"
+        assert icon_path.stat().st_size > 10_000
+        with Image.open(icon_path) as icon:
+            assert icon.ico.sizes() == expected_sizes
+            for size in taskbar_sizes:
+                layer = icon.ico.getimage((size, size)).convert("RGBA")
+                alpha = layer.getchannel("A")
+                corners = (
+                    alpha.getpixel((0, 0)),
+                    alpha.getpixel((size - 1, 0)),
+                    alpha.getpixel((0, size - 1)),
+                    alpha.getpixel((size - 1, size - 1)),
+                )
+                assert corners == (0, 0, 0, 0)
     assert (icon_root / "concept-a-preview.png").is_file()
     readme = (icon_root / "README.md").read_text(encoding="utf-8")
     assert "正式" in readme
     assert "A" in readme
+    generator = Path("tools/make_icons.py").read_text(encoding="utf-8")
+    assert "SMALL_ICON_SIZES" in generator
+    assert "20, 24, 28, 32, 36, 40" in generator
+    assert "Image.Resampling.BOX" in generator
+    assert "append_images=frames[:-1]" in generator
+
+
+def test_header_hint_omits_random_wait_copy() -> None:
+    source = Path("boss_assistant/gui/app.py").read_text(encoding="utf-8")
+    assert "默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止" in source
+    assert "默认实际发送 · 每步随机等待" not in source
+
+
+def test_gui_enables_dpi_awareness_before_tk_window_creation() -> None:
+    source = Path("boss_assistant/gui/app.py").read_text(encoding="utf-8")
+    assert "SetProcessDpiAwareness(1)" in source
+    constructor = source[source.index("class BossControlPanel"):]
+    assert constructor.index("_enable_windows_dpi_awareness()") < constructor.index(
+        "super().__init__()"
+    )
 
 
 def test_gui_defaults_example_is_parseable_and_has_no_real_password() -> None:

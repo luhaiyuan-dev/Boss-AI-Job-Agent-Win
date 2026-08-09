@@ -211,7 +211,7 @@ powershell -ExecutionPolicy Bypass -File tools\build_exe_nuitka.ps1
 
 产物为项目根目录下的两个 onefile EXE：`Boss登录浏览器.exe` 和 `Boss求职助手.exe`。构建使用 MSVC、LTO、Windows GUI 子系统和正式 ICO；Python 3.13 不使用 MinGW。两个 EXE 从自身所在目录读取外置 `config/`、`data/` 和 `resume_inbox/`。
 
-正式 A 方案图标完整保存在 `assets/icons/official/`，包括两张透明 PNG、两份多尺寸 ICO 和 A 方案预览图，可供后续版本继续使用。求职助手采用四向 AI 罗盘，登录浏览器采用蓝青连接环与红橙节点；均为白色圆角底，不再使用公文包图案。`tools/make_icons.py` 会生成含 16/24/32/48/64/128/256 像素的 ICO。
+正式 A 方案图标完整保存在 `assets/icons/official/`，包括两张透明 PNG、两份多尺寸 ICO 和 A 方案预览图，可供后续版本继续使用。求职助手采用四向 AI 罗盘，登录浏览器采用蓝青连接环与红橙节点；均为白色圆角底，不再使用公文包图案。`tools/make_icons.py` 会生成覆盖 Windows 100%–300% 常用 DPI 阶梯的 16/20/24/28/32/36/40/48/56/64/72/80/96/128/256 像素 ICO；其中 16–96 像素由代码按目标尺寸单独绘制无阴影、加粗、像素对齐的任务栏图层，不再把复杂 256 像素源图直接缩小。GUI 在创建 Tk 窗口前启用 Windows System DPI Awareness，因此 125% 缩放会直接取得 20/40 像素层，不再由 DWM 放大 96 DPI 的 16/32 像素图层。
 
 打包结束后，脚本会通过 Windows Shell 定向通知刷新两个 EXE 的图标，并调用系统图标显示刷新。这样即使保持项目文件夹窗口打开，同路径重建产物也不应继续显示旧图标；不需要手动删除全局 `iconcache_*.db`。
 
