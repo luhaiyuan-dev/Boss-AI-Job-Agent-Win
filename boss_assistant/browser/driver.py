@@ -38,6 +38,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 import websocket
 
+from boss_assistant.paths import runtime_root
+
 
 class BrowserError(RuntimeError):
     """浏览器启动、导航或元素操作失败，继续操作可能产生误点击。"""
@@ -85,11 +87,9 @@ def default_edge_user_data_dir() -> Path:
 
 
 def _project_root() -> Path:
-    """项目根目录：PyInstaller 冻结运行时为 exe 所在目录，源码运行为模块上级目录。"""
+    """源码与冻结运行时统一返回外置数据所在根目录。"""
 
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[2]
+    return runtime_root()
 
 
 def boss_edge_user_data_dir() -> Path:

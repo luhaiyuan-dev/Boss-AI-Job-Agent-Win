@@ -1,6 +1,6 @@
 # Boss 求职助手控制台（Windows Web）
 
-当前版本：`0.1.5`
+当前版本：`0.1.6`
 
 本项目通过登录专用 Microsoft Edge 的最小原生 CDP 通道读取 Boss直聘 Web 页面，结合本地 PDF 简历和大模型审核岗位，并在 Tkinter 控制台中完成筛选、招呼语生成、受控填充/发送、未读消息巡检、断点保存和结果统计。
 
@@ -21,7 +21,7 @@
 
 - Windows 10/11
 - Microsoft Edge
-- Python 3.11 及以上（当前验证环境为 Python 3.13）
+- 正式 EXE 运行不需要安装 Python；只有源码开发需要 Python 3.11 及以上（当前构建环境为 Python 3.13）
 - 可连接的 MySQL 8.x；GUI 启动正式任务时会创建或更新所需数据库表
 - 至少一份文本型 PDF 简历
 - 使用“大模型API”时，需要 OpenAI 兼容接口配置
@@ -31,9 +31,9 @@
 
 ### 全新 Windows 电脑一键离线部署
 
-项目已提供 Win-Web 专用的 `requests-packages/`，其中包含 Python 3.13.14、Edge 151.0.4129.59、MySQL 8.0.36、可选 Navicat 17.3.11、可选 Codex CLI 0.133.0，以及当前依赖的完整离线 wheelhouse。此目录不包含 Android ADB 组件。
+项目提供独立的 `requests-packages/` 环境包，其中包含 PowerShell 7.6.4 LTS、Edge 151.0.4129.59、MySQL 8.0.36、VC++ x64 运行库、Navicat 17.3.11 和可选 Codex CLI 0.133.0。正式 Nuitka EXE 已内置 Python 运行时和项目依赖，因此环境包不再安装 Python，也不含 wheelhouse 或源码。一键入口会复用任意现有 PowerShell 7；没有时先离线安装，再由 `pwsh.exe` 继续部署。新装的 PowerShell 7、MySQL 和 Navicat 跟随一键部署文件所在盘符，Edge 和 VC++ 等系统组件保留 Windows 默认安装位置；现有软件不迁移。
 
-保持项目结构不变，依次双击：
+在新电脑上先把 `requests-packages` 复制到目标目录并运行部署，再把两个 EXE 复制到它的父目录。最终依次双击：
 
 ```text
 requests-packages\验证安装包.cmd
@@ -41,15 +41,17 @@ requests-packages\一键部署.cmd
 requests-packages\验证环境.cmd
 ```
 
-API Key 配置和 Codex 安装/登录在向导中都可以跳过。稍后配置位置分别是：
+部署脚本会在父目录创建 `config` 和 `resume_inbox`；API Key、MySQL 用户名和密码故意留空。配置位置分别是：
 
-- API：项目根目录 `config/model_api.local.json`，模板为 `config/model_api.example.json`
-- Codex：运行 `requests-packages/scripts/Install-Codex-Optional.ps1`，再执行 `codex login`
-- GUI/MySQL：项目根目录 `config/gui_defaults.txt`
+- API：目标根目录 `config/model_api.local.json`，保留模型 `deepseek-v4-flash`
+- Codex：双击 `requests-packages/安装Codex（可选）.cmd`；已安装且已登录时自动检测并复用
+- GUI/MySQL：目标根目录 `config/gui_defaults.txt`
 
-两种模型方式都跳过不会阻止电脑环境部署，但开始模型审核前必须至少完成一种。完整说明见 [requests-packages/README.md](requests-packages/README.md) 与 [首次使用向导](requests-packages/首次使用向导.md)。
+Codex 主导模式固定使用 `gpt-5.5`；API 模式使用 JSON 中实际填写的模型。开始模型审核前必须至少完成一种。完整说明见 [requests-packages/README.md](requests-packages/README.md) 与 [首次使用向导](requests-packages/首次使用向导.md)。
 
-部署包不含或复制 API Key、Codex/Boss 登录状态、MySQL 历史数据、Navicat 许可证、真实简历和 `data/edge_profile_boss/`。分发给新用户前请运行 `requests-packages/scripts/Build-Distribution.ps1` 创建脱敏副本，不要直接压缩开发目录。
+该一键部署流程已于 2026-08-08 在初始未安装 PowerShell 7 的干净 Windows Sandbox 完成验收；Navicat 可正常使用并成功连接新部署的 MySQL 数据库。验收未使用任何真实账号、密钥、简历或投递功能。
+
+部署包不含或复制源码、API Key、Codex/Boss 登录状态、MySQL 历史数据、Navicat 许可证、真实简历和 `data/edge_profile_boss/`。分发给新用户前请运行 `requests-packages/scripts/Build-Distribution.ps1` 创建“两个 EXE + 环境包”的脱敏副本，不要直接压缩开发目录。
 
 ### 已有 Python 环境手动安装
 
@@ -198,22 +200,24 @@ python tools\probe_dom.py --target-city 广州 --target-role Python
 python tools\run_fill_only_smoke.py --target-companies 1 --max-jobs 10
 ```
 
-## 打包为 exe
+## 使用 Nuitka 打包为 EXE
 
-需要 PyInstaller 和 Pillow（图标生成），然后执行：
+开发机安装固定构建依赖，然后执行：
 
 ```powershell
-python -m pip install pyinstaller pillow
-powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1
+.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+powershell -ExecutionPolicy Bypass -File tools\build_exe_nuitka.ps1
 ```
 
-产物为项目根目录下的两个 exe：`Boss登录浏览器.exe`（启动登录专用 Edge，双击无终端窗口，仅启动失败时弹窗提示）和 `Boss求职助手.exe`（启动 Tkinter 控制台，无终端窗口）。两者调用 PowerShell/Edge 子进程时也会使用 Windows 无窗口创建参数，避免 GUI 求职意向周期探测或关闭浏览器后出现空终端闪窗。
+产物为项目根目录下的两个 onefile EXE：`Boss登录浏览器.exe` 和 `Boss求职助手.exe`。构建使用 MSVC、LTO、Windows GUI 子系统和正式 ICO；Python 3.13 不使用 MinGW。两个 EXE 从自身所在目录读取外置 `config/`、`data/` 和 `resume_inbox/`。
 
-图标源图位于 `assets/icons/`：清新天蓝底的“白色公文包 + 珊瑚橙星芒”代表求职助手，“白色浏览器 + 暖黄色钥匙孔”代表登录浏览器。`tools/make_icons.py` 会裁切透明空白并生成含 16/24/32/48/64/128/256 像素的 ICO；打包脚本每次都会从源图重建，确保修改图标后不会继续使用旧产物。
+正式 A 方案图标完整保存在 `assets/icons/official/`，包括两张透明 PNG、两份多尺寸 ICO 和 A 方案预览图，可供后续版本继续使用。求职助手采用四向 AI 罗盘，登录浏览器采用蓝青连接环与红橙节点；均为白色圆角底，不再使用公文包图案。`tools/make_icons.py` 会生成覆盖 Windows 100%–300% 常用 DPI 阶梯的 16/20/24/28/32/36/40/48/56/64/72/80/96/128/256 像素 ICO；其中 16–96 像素由代码按目标尺寸单独绘制无阴影、加粗、像素对齐的任务栏图层，不再把复杂 256 像素源图直接缩小。GUI 在创建 Tk 窗口前启用 Windows System DPI Awareness，因此 125% 缩放会直接取得 20/40 像素层，不再由 DWM 放大 96 DPI 的 16/32 像素图层。
 
 打包结束后，脚本会通过 Windows Shell 定向通知刷新两个 EXE 的图标，并调用系统图标显示刷新。这样即使保持项目文件夹窗口打开，同路径重建产物也不应继续显示旧图标；不需要手动删除全局 `iconcache_*.db`。
 
-**exe 是打包时刻代码与依赖的冻结快照**：每次修改源码（修复 BUG、优化升级）后必须重新执行上述打包命令，两个 exe 才会包含新改动；打包不会修改源码，命令行启动方式始终可用。exe 均不进入版本控制，重新打包会覆盖旧产物。
+构建前，`tools/obfuscate_strings.py` 只在 `build/nuitka/staging/` 创建临时源码副本，并对核心审核、策略和数据库字符串做每次构建随机的压缩/XOR/编码转换；正式源码及目录结构不修改。该措施与 Nuitka 原生编译共同提高批量解包和 AI 一键还原的门槛，但不能承诺抵御有经验者的动态调试、内存抓取或长期逆向。
+
+**EXE 是打包时刻代码与依赖的冻结快照**：每次修改源码后必须重新构建。`tools/build_exe.ps1` 仅保留为旧 PyInstaller 开发回退，不是正式发布方式。
 
 ## 验证
 
@@ -224,7 +228,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 python -m ruff check boss_assistant tests run_control_panel.py tools
 ```
 
-当前 `0.1.5` 基线、EXE 无闪窗及图标缓存校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
+当前 `0.1.6` 基线、Nuitka 构建与环境包校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
 
 ## 安全边界与已知限制
 

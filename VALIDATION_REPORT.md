@@ -2,8 +2,8 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.5`
-- 验证日期：2026-08-08
+- 项目版本：`0.1.6`
+- 验证日期：2026-08-09
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
 
@@ -21,14 +21,45 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`123 passed`
+- 测试：`129 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
 
-`ruff` 尚未安装在当前环境，因此没有把静态检查伪装成已通过；项目已新增 `requirements-dev.txt`，安装后可执行 README 中的静态检查命令。
+`ruff` 已安装；本次新增的运行时路径、图标与字符串加固工具单独检查通过。全仓审计仍检出 179 条既有风格问题，因此没有把全仓 Ruff 伪装成通过，也没有借本次打包升级扩大修改范围。
 
-打包使用的系统 Python 中另有一个不属于本项目依赖清单的全局 FastAPI/Starlette 版本冲突，因此没有把系统环境的 `pip check` 写成通过；该冲突未影响本次 PyInstaller 构建，项目 `.venv` 检查通过。
+构建和测试统一使用项目 `.venv`，`pip check` 返回 `No broken requirements found`。
+
+## 0.1.6 Nuitka、外置配置与环境包升级
+
+正式构建：
+
+- 使用 Python 3.13.14 x64、Nuitka 4.1.3 与 MSVC 14.5，两个入口均采用 onefile、LTO、无控制台窗口和 0.1.6.0 PE 版本信息；未使用 Python 3.13 不兼容的 MinGW 路径。
+- `tools/obfuscate_strings.py` 只在 `build/nuitka/staging` 复制并转换构建副本，正式源码保持可读。最终一轮共转换 202 处引用、183 条唯一字符串；Nuitka 报告包含 `boss_assistant._protected_strings`，核心模块均引用该生成模块。
+- 最终 C 构建目录和两个 onefile EXE 对 `严格依据`、`CREATE TABLE`、`岗位方向是否匹配`、`不得编造`、PyInstaller 标记等代表性明文扫描均无命中。该保护用于提高批量解包与 AI 一键还原门槛，不宣称能抵御动态调试或内存抓取。
+- 两个 EXE 的 PE Subsystem 均为 `2`（Windows GUI），Authenticode 状态为 `NotSigned`，符合本次已确认的无签名边界。
+- `Boss求职助手.exe`：27,759,104 字节，SHA-256 `F84D272EFA4F1013A1378E3254A0CE637ADF37C3EBB14058A0386DD04A8F777B`。
+- `Boss登录浏览器.exe`：14,175,744 字节，SHA-256 `9A16562721C11C1B081C39FDFD9FE16E18E672BE03DE676DBEBE7BE2A25F7426`。
+
+运行验证：
+
+- 主 EXE 启动后生成一个响应正常的窗口，标题为 `Boss 求职助手控制台-Win v0.1.6`；正式子进程经 `GetProcessDpiAwareness` 验证为 1（System DPI Aware）。未点击“开始”，随后关闭本次父/子进程。
+- 登录 EXE 使用独立临时 Profile 和 9339 调试端口运行，退出码为 0，CDP 观察到 Boss 页面；未登录、未填写、未发送。测试 Edge 通过 `Browser.close` 关闭，隔离 Profile 已移入回收站。
+- 本机只读环境验证自动识别 Edge、VC++、运行中的 MySQL、Navicat，以及 PATH 中已安装且登录的 Codex CLI 0.133.0；主程序仍固定要求 Codex 模式使用 `gpt-5.5`。
+
+环境包与图标：
+
+- `requests-packages` 已移除 Python 安装器、`requirements-offline.txt` 和完整 wheelhouse；当前清单为 PowerShell 7.6.4 LTS、Edge、MySQL、VC++、Navicat、Codex 共 6 项，826,296,129 字节（788.02 MiB）。PowerShell ZIP 的 SHA-256 与官方发布清单一致；引导脚本解压后验证 `pwsh.exe`，再写入系统 PATH。
+- 一键部署仅安装或复用电脑环境，在父目录创建 `config`、`resume_inbox` 和两个外置配置模板；API Key、MySQL 用户名与密码为空，API 模型保留 `deepseek-v4-flash`。新装 MySQL 密码必须现场无回显输入并二次确认，至少 8 位。
+- 一键入口新增仅含 ASCII 的 PowerShell 引导脚本：先复用任意现有 PowerShell 7；没有时离线静默安装随包的 7.6.4 LTS，再强制由 `pwsh.exe` 执行正式部署。Windows PowerShell 5.1 只负责引导，不再解析中文主部署脚本。
+- 正式 A 方案图标保存在 `assets/icons/official`。两张 PNG 为 1254×1254、四角 alpha 均为 0；两份 ICO 均含 16/20/24/28/32/36/40/48/56/64/72/80/96/128/256 共 15 个尺寸，Nuitka 日志确认分别嵌入两个 EXE。
+- 2026-08-09 根据 Windows 任务栏实拍继续定位小图层模糊：本机为 120 DPI（125%），Windows 实际请求 20×20 小图标和 40×40 大图标；上一轮 ICO 恰好缺少这两个尺寸，只能由 Shell 缩放相邻图层。继续检查正式 EXE 子进程后，`GetProcessDpiAwareness` 又确认其级别为 0（DPI unaware），Tk 创建的 96 DPI 窗口还会被 DWM 整体放大。新生成器补齐 100%–300% 常用 DPI 尺寸阶梯，将任务栏专用绘制范围扩展到 16–96 像素；进一步放大四色主体、把 28 像素以下的细星芒简化为实心菱形，并使用面积平均缩小避免 Lanczos 在高对比边缘产生振铃。GUI 在第一个 Tk HWND 创建前启用 System DPI Awareness，使 125% 屏幕直接加载原生 20/40 像素层。15 个尺寸和透明四角由回归测试逐层读取确认。
+- 两个 Nuitka onefile EXE 已重新构建，构建日志分别确认 `Adding 15 icon(s)`。主 EXE 再次启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.6` 且保持响应；通过任务栏窗口 `Shell_TrayWnd` 的实拍确认，40 像素原生层能够清晰显示圆角底板、放大的四向罗盘和中心星芒。完整 DPI-aware 窗口截图也确认右上角只剩“默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止”。测试只启动 GUI，未点击“开始”，随后关闭测试进程。
+- 5 个包含中文的部署 PowerShell 脚本均使用 UTF-8 BOM；新增引导脚本严格保持纯 ASCII、无需 BOM。6 个脚本全部同时通过 Windows PowerShell 5.1 与 PowerShell 7 语法解析。
+
+Windows Sandbox 功能已启用并完成干净机验收。首次连接中断由 Hyper-V Worker 事件 33101 定位为来宾虚拟 PCI 协议 `0x10006` 与宿主修订级别不兼容；在 `.wsb` 和宿主 Windows Sandbox 策略中禁用 vGPU，并经用户授权停止 Docker/WSL、重启 `vmcompute` 后，沙盒连接保持稳定。干净沙盒初始没有 PowerShell 7，一键入口成功校验并解压随包的 7.6.4 ZIP，再由 `pwsh.exe` 完成后续环境部署；6 项安装资源哈希全部通过。2026-08-08 用户在该沙盒中手动完成一键部署，确认 Navicat 可以正常使用，并通过 Navicat 成功连接新部署的 MySQL 数据库。验证全程未录入真实 API Key、Codex/Boss 登录信息或简历，也未执行投递。
+
+2026-08-09 进一步将可指定目录的软件改为跟随一键部署文件所在盘符：新装 PowerShell 7 使用 `盘符:\BossJobAssistant\PowerShell\7`，MySQL 程序、数据和 `my.ini` 使用 `盘符:\BossJobAssistant\MySQL`，Navicat 使用 `盘符:\BossJobAssistant\Navicat\17.3.11`。Edge 与 VC++ 运行库继续使用官方安装器的系统默认位置；检测到的既有软件不迁移。两个后续 CMD 入口增加部署盘 PowerShell 回退查找，避免环境变量尚未刷新时误报。该增量通过 PowerShell 5.1/7 语法解析、CMD 编码/换行回归和项目测试；此前干净沙盒验收使用的是修改前的系统盘路径，因此不将其表述为新盘符布局的实机安装证明。
 
 ## 0.1.5 Explorer 图标缓存修复
 
@@ -62,7 +93,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 - 首轮同时启动两个 EXE 并以 40ms 间隔监测 24 秒，覆盖多轮 5 秒 GUI 求职意向重试，新增 `ConsoleWindowClass` 数量为 0。
 - 第二轮使用隔离临时 Profile 强制执行“登录器启动 Edge → CDP `Browser.close` 关闭 → 继续监测”，以 40ms 间隔监测 28 秒，新增 `ConsoleWindowClass` 数量仍为 0；测试未读取或修改现有登录资料，临时 Profile 已移入回收站。
 
-## Win-Web 离线部署包验证
+## 0.1.3 Win-Web 离线部署包历史验证
 
 本次新增 `requests-packages/`，以 Android 版已经使用的清单、哈希、部署、环境验证结构为模板，但依赖按当前 Win-Web 项目重新盘点，不包含 ADB、Platform-Tools 或 ADBKeyBoard。
 
@@ -90,7 +121,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 API Key 与 Codex 安装/登录分别提供跳过选项。部署脚本会明确显示 `config/model_api.local.json`、`config/model_api.example.json` 和 `config/gui_defaults.txt` 的绝对位置。分发辅助脚本会排除本机配置、PDF、`data/`、`.venv/`、缓存和日志。
 
-本次没有在当前开发机执行 Edge MSI、MySQL 服务、VC++ 或 Navicat 的覆盖安装，因为当前机器已有对应环境；也没有把这次受控跳过路径写成“全新电脑完整安装已验证”。完整一键安装仍需在干净 Windows 10/11 x64 电脑验收。
+0.1.3 当时没有在开发机覆盖安装 Edge MSI、MySQL 服务、VC++ 或 Navicat，因此该版本只记录受控跳过路径，未宣称完成全新电脑安装。当前 0.1.6 环境包已经在干净 Windows Sandbox 完成一键部署、Navicat 使用和 MySQL 连接验收，见本文前述 0.1.6 验证记录。
 
 ## 150位当日沟通上限真实验证
 
@@ -135,4 +166,4 @@ API Key 与 Codex 安装/登录分别提供跳过选项。部署脚本会明确�
 - Boss Web DOM、文案和额度规则属于外部状态，未来变化后需要重新进行真实页面核验。
 - 扫描件 PDF 不支持 OCR。
 - 登录态、API密钥、MySQL凭据和真实简历只在本机维护，不属于可分发项目资产。
-- 当前目录不是 Git 工作树，无法用 `git diff` 或 `git status` 证明改动范围；本次通过逐文件读取、针对性测试和全量测试完成核验。
+- 本次通过 `git diff --check`、逐文件读取、针对性测试和全量测试完成核验。

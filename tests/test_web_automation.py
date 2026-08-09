@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import re
 import subprocess
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from PIL import Image
 
 from boss_assistant import __version__
 from boss_assistant.automation.api_provider import (
@@ -40,12 +42,14 @@ from boss_assistant.automation.requirements import (
 from boss_assistant.automation.review import (
     CardReviewResult,
     ChatReviewResult,
+    CodexCliReviewProvider,
     DetailReviewResult,
+    ReviewError,
 )
 from boss_assistant.automation.runner import (
+    DAILY_COMMUNICATION_LIMIT_REASON,
     BossAutomationError,
     BossAutomationRunner,
-    DAILY_COMMUNICATION_LIMIT_REASON,
     DailyCommunicationLimitReachedError,
     allocate_expectation_quotas,
     find_recent_successful_application,
@@ -68,22 +72,22 @@ from boss_assistant.gui.app import (
 from boss_assistant.page import PageReadError, build_job_page_data
 from boss_assistant.web.page_reader import align_detail_identity, read_job_detail
 from boss_assistant.web.selectors import (
-    CommunicationQuotaNotice,
     SELECTORS,
+    CommunicationQuotaNotice,
     _clean,
     _same_job_card,
     build_card_fingerprint,
+    expectation_is_active,
     extract_chat_conversations,
     extract_chat_system_notes,
     extract_job_cards,
-    expectation_is_active,
     find_chat_entry,
     find_expectation_element,
     parse_job_intents,
     read_communication_quota_notice,
-    read_message_unread_count,
     read_current_chat_identity,
     read_current_chat_job_info,
+    read_message_unread_count,
     resume_request_accept_button,
     select_job_card_inline,
 )
@@ -158,13 +162,70 @@ def test_login_launcher_reuses_edge_without_a_console_window(tmp_path: Path) -> 
 
 
 def test_exe_build_notifies_explorer_to_refresh_both_icons() -> None:
-    script = Path("tools/build_exe.ps1").read_text(encoding="utf-8-sig")
+    script = Path("tools/build_exe_nuitka.ps1").read_text(encoding="utf-8-sig")
 
+    assert "-m nuitka" in script
+    assert '"--msvc=latest"' in script
+    assert "--mingw64" not in script
+    assert '"--mode=onefile"' in script
+    assert '"--windows-console-mode=disable"' in script
+    assert "tools\\obfuscate_strings.py" in script
+    assert "assets\\icons\\official" in script
     assert "SHCNE_UPDATEITEM" in script
     assert "SHCNF_PATHW" in script
-    assert 'Update-ExplorerIcon (Join-Path $ProjectRoot "Boss登录浏览器.exe")' in script
-    assert 'Update-ExplorerIcon (Join-Path $ProjectRoot "Boss求职助手.exe")' in script
+    assert "Update-ExplorerIcon $target" in script
     assert 'System32\\ie4uinit.exe' in script
+
+
+def test_formal_concept_a_icons_are_preserved_for_reuse() -> None:
+    icon_root = Path("assets/icons/official")
+    taskbar_sizes = (16, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96)
+    expected_sizes = {
+        *((size, size) for size in taskbar_sizes),
+        (128, 128),
+        (256, 256),
+    }
+
+    for stem in ("boss_assistant", "boss_login"):
+        assert (icon_root / f"{stem}.png").stat().st_size > 10_000
+        icon_path = icon_root / f"{stem}.ico"
+        assert icon_path.stat().st_size > 10_000
+        with Image.open(icon_path) as icon:
+            assert icon.ico.sizes() == expected_sizes
+            for size in taskbar_sizes:
+                layer = icon.ico.getimage((size, size)).convert("RGBA")
+                alpha = layer.getchannel("A")
+                corners = (
+                    alpha.getpixel((0, 0)),
+                    alpha.getpixel((size - 1, 0)),
+                    alpha.getpixel((0, size - 1)),
+                    alpha.getpixel((size - 1, size - 1)),
+                )
+                assert corners == (0, 0, 0, 0)
+    assert (icon_root / "concept-a-preview.png").is_file()
+    readme = (icon_root / "README.md").read_text(encoding="utf-8")
+    assert "正式" in readme
+    assert "A" in readme
+    generator = Path("tools/make_icons.py").read_text(encoding="utf-8")
+    assert "SMALL_ICON_SIZES" in generator
+    assert "20, 24, 28, 32, 36, 40" in generator
+    assert "Image.Resampling.BOX" in generator
+    assert "append_images=frames[:-1]" in generator
+
+
+def test_header_hint_omits_random_wait_copy() -> None:
+    source = Path("boss_assistant/gui/app.py").read_text(encoding="utf-8")
+    assert "默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止" in source
+    assert "默认实际发送 · 每步随机等待" not in source
+
+
+def test_gui_enables_dpi_awareness_before_tk_window_creation() -> None:
+    source = Path("boss_assistant/gui/app.py").read_text(encoding="utf-8")
+    assert "SetProcessDpiAwareness(1)" in source
+    constructor = source[source.index("class BossControlPanel"):]
+    assert constructor.index("_enable_windows_dpi_awareness()") < constructor.index(
+        "super().__init__()"
+    )
 
 
 def test_gui_defaults_example_is_parseable_and_has_no_real_password() -> None:
@@ -179,7 +240,7 @@ def test_gui_defaults_example_is_parseable_and_has_no_real_password() -> None:
     assert defaults["MySQL密码"] == ""
 
 
-def test_win_offline_bundle_manifest_matches_files_and_excludes_android() -> None:
+def test_win_offline_bundle_manifest_matches_files_and_has_no_python_runtime() -> None:
     bundle = Path("requests-packages")
     manifest = json.loads((bundle / "manifest.json").read_text(encoding="utf-8"))
     packages = manifest["packages"]
@@ -188,10 +249,13 @@ def test_win_offline_bundle_manifest_matches_files_and_excludes_android() -> Non
 
     assert manifest["project_version"] == __version__
     assert manifest["target"] == "Windows 10/11 x64"
-    assert len(packages) == len(paths) == 34
+    assert len(packages) == len(paths) == 6
     assert "adb" not in lowered
     assert "platform-tools" not in lowered
-    assert "installers/python-3.13.14-amd64.exe" in paths
+    assert "python" not in lowered
+    assert not (bundle / "wheelhouse").exists()
+    assert not (bundle / "requirements-offline.txt").exists()
+    assert "installers/PowerShell-7.6.4-win-x64.zip" in paths
     assert "installers/MicrosoftEdgeEnterpriseX64-151.0.4129.59.msi" in paths
     assert "installers/mysql-8.0.36-winx64.zip" in paths
     assert "installers/navicat-premium-17.3.11-en-x64.exe" in paths
@@ -204,23 +268,127 @@ def test_win_offline_bundle_manifest_matches_files_and_excludes_android() -> Non
         assert re.fullmatch(r"[0-9A-F]{64}", package["sha256"])
 
 
-def test_win_offline_setup_has_skippable_ai_and_private_config_boundaries() -> None:
+def test_win_offline_setup_installs_only_host_environment_and_writes_templates() -> None:
     bundle = Path("requests-packages")
     setup = (bundle / "scripts/Setup.ps1").read_text(encoding="utf-8")
     readme = (bundle / "README.md").read_text(encoding="utf-8")
     distribution = (bundle / "scripts/Build-Distribution.ps1").read_text(
         encoding="utf-8"
     )
+    bootstrap = (bundle / "scripts/Bootstrap-PowerShell.ps1").read_text(
+        encoding="ascii"
+    )
 
-    assert "SkipApiConfig" in setup
-    assert "SkipCodex" in setup
-    assert "config\\model_api.local.json" in setup
-    assert "config\\gui_defaults.txt" in setup
-    assert "直接回车跳过" in setup
-    assert "不含 ADB" in readme
-    assert "model_api.local.json" in distribution
-    assert "gui_defaults.txt" in distribution
-    assert '"*.pdf"' in distribution
+    assert "wheelhouse" not in setup
+    assert "python-3" not in setup.casefold()
+    assert "Install-Codex-Optional" not in setup
+    assert '@("model_api.local.json", "model_api.local.json")' in setup
+    assert '@("gui_defaults.txt", "gui_defaults.txt")' in setup
+    assert "Read-ConfirmedMySqlPassword" in setup
+    assert "至少8个字符" in setup
+    assert "已存在且未覆盖" in setup
+    assert "不含" in readme and "ADB" in readme
+    assert '"config"' in distribution
+    assert '".pdf"' in distribution
+    assert "PowerShell-7.6.4-win-x64.zip" in bootstrap
+    assert "Test-PowerShell7" in bootstrap
+    assert "Setup.ps1" in bootstrap
+    assert "Expand-Archive" in bootstrap
+    assert 'Join-Path $deploymentDriveRoot "BossJobAssistant"' in bootstrap
+    assert "DriveType]::Fixed" in bootstrap
+    assert "DriveType]::Fixed" in setup
+    assert 'Join-Path $environmentRoot "PowerShell\\7"' in bootstrap
+    assert 'Join-Path $environmentRoot "MySQL"' in setup
+    assert 'Join-Path $environmentRoot "Navicat\\17.3.11"' in setup
+    assert "ProgramData" not in setup
+    assert '/DIR="{0}"' in setup
+    assert 'SetEnvironmentVariable(\n                "Path"' in bootstrap
+    for launcher_name in ("验证环境.cmd", "安装Codex（可选）.cmd"):
+        launcher = (bundle / launcher_name).read_text(encoding="utf-8")
+        assert "%~d0\\BossJobAssistant\\PowerShell\\7\\pwsh.exe" in launcher
+    for command_file in bundle.glob("*.cmd"):
+        command_bytes = command_file.read_bytes()
+        assert not command_bytes.startswith(b"\xef\xbb\xbf"), command_file.name
+        assert b"\r\n" in command_bytes, command_file.name
+        assert b"\n" not in command_bytes.replace(b"\r\n", b""), command_file.name
+
+    api_template = json.loads(
+        (bundle / "templates/model_api.local.json").read_text(encoding="utf-8")
+    )
+    gui_template = (bundle / "templates/gui_defaults.txt").read_text(encoding="utf-8")
+    assert api_template["model"] == "deepseek-v4-flash"
+    assert api_template["api_key"] == ""
+    assert "MySQL用户名：。" in gui_template
+    assert "MySQL密码：。" in gui_template
+
+
+def test_codex_provider_reuses_installed_logged_in_cli(tmp_path: Path) -> None:
+    codex = tmp_path / "codex.exe"
+    codex.write_bytes(b"placeholder")
+    commands: list[list[str]] = []
+
+    def runner(command: list[str], **_: object) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="codex-cli 0.133.0", stderr="")
+
+    with patch.object(CodexCliReviewProvider, "_configured_model", return_value="gpt-5.5"):
+        provider = CodexCliReviewProvider(
+            directory=tmp_path / "reviews",
+            workspace=tmp_path,
+            codex_path=codex,
+            preflight_runner=runner,
+        )
+
+    assert provider.codex_path == str(codex.resolve())
+    assert commands == [
+        [str(codex.resolve()), "--version"],
+        [str(codex.resolve()), "login", "status"],
+    ]
+
+
+def test_codex_provider_rejects_installed_but_logged_out_cli(tmp_path: Path) -> None:
+    codex = tmp_path / "codex.exe"
+    codex.write_bytes(b"placeholder")
+
+    def runner(command: list[str], **_: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            returncode=1 if command[-2:] == ["login", "status"] else 0,
+            stdout="",
+            stderr="",
+        )
+
+    with pytest.raises(ReviewError, match="尚未登录"):
+        CodexCliReviewProvider(
+            directory=tmp_path / "reviews",
+            codex_path=codex,
+            preflight_runner=runner,
+        )
+
+
+def test_build_only_string_transform_hides_sensitive_literals() -> None:
+    from tools.obfuscate_strings import (
+        _docstring_node_ids,
+        _insert_decoder_import,
+        _StringTransformer,
+    )
+
+    sensitive = "这是只应存在于构建前源码中的一段核心模型审核提示"
+    tree = ast.parse(
+        "class Example:\n"
+        "    def value(self):\n"
+        f"        return {sensitive!r}\n"
+    )
+    transformer = _StringTransformer(_docstring_node_ids(tree))
+    transformed = transformer.visit(tree)
+    _insert_decoder_import(transformed)
+    ast.fix_missing_locations(transformed)
+    rendered = ast.unparse(transformed)
+
+    assert sensitive not in rendered
+    assert "from boss_assistant._protected_strings import decode as _ps_decode" in rendered
+    assert "_ps_decode(" in rendered
+    assert "__ps" not in rendered
+    assert sensitive in transformer.values.values()
 
 
 def _card(**overrides: object) -> JobCard:

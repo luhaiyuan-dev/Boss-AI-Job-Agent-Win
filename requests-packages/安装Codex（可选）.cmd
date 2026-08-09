@@ -9,8 +9,9 @@ if not exist "%PWSH_EXE%" (
   pause
   exit /b 1
 )
-"%PWSH_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%BUNDLE_DIR%scripts\Verify-Environment.ps1"
+"%PWSH_EXE%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%BUNDLE_DIR%scripts\Install-Codex-Optional.ps1"
 set "EXIT_CODE=%ERRORLEVEL%"
 echo.
+if not "%EXIT_CODE%"=="0" echo Codex 可选安装未完成。
 pause
 exit /b %EXIT_CODE%

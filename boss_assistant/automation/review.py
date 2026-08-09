@@ -1510,6 +1510,7 @@ class CodexCliReviewProvider(ManualFileReviewProvider):
         codex_path: str | Path | None = None,
         model: str | None = None,
         process_factory: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
+        preflight_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
     ) -> None:
         super().__init__(
             directory,
@@ -1519,13 +1520,14 @@ class CodexCliReviewProvider(ManualFileReviewProvider):
             request_id_factory=request_id_factory,
             control_point=control_point,
         )
-        located = str(codex_path) if codex_path else shutil.which("codex")
+        located = self._resolve_codex_path(codex_path)
         if not located:
             raise ReviewError(
                 "Codex主导模式需要本机Codex CLI，但当前未找到codex命令；"
                 "请安装并登录Codex CLI，或切换至大模型API"
             )
         self.codex_path = str(Path(located).resolve())
+        self._check_cli_ready(preflight_runner)
         # 固定使用 gpt-5.5：更新的 gpt-5.6 系列虽然会出现在模型缓存里，但通过 CLI
         # 调用会被服务端以“requires a newer version of Codex”拒绝。若用户 Codex 端
         # 选的不是 gpt-5.5，这里给出明确的切换提示。
@@ -1537,6 +1539,56 @@ class CodexCliReviewProvider(ManualFileReviewProvider):
             )
         self.workspace = Path(workspace).resolve()
         self.process_factory = process_factory
+
+    @staticmethod
+    def _resolve_codex_path(codex_path: str | Path | None) -> str | None:
+        """优先使用显式路径/PATH，并兼容随部署包安装但 PATH 尚未刷新的 CLI。"""
+
+        if codex_path:
+            candidate = Path(codex_path).expanduser()
+            return str(candidate) if candidate.is_file() else None
+        located = shutil.which("codex")
+        if located:
+            return located
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if not local_app_data:
+            return None
+        install_root = Path(local_app_data) / "BossJobAssistant" / "Codex"
+        candidates = sorted(
+            install_root.glob("*/codex.exe"),
+            key=lambda path: path.parent.name,
+            reverse=True,
+        )
+        return str(candidates[0]) if candidates else None
+
+    def _check_cli_ready(
+        self,
+        runner: Callable[..., subprocess.CompletedProcess[str]],
+    ) -> None:
+        """开始自动化前确认 Codex 可执行且当前 Windows 用户已经登录。"""
+
+        common = {
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": 15,
+            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        }
+        try:
+            version = runner([self.codex_path, "--version"], **common)
+            if version.returncode != 0:
+                raise ReviewError("Codex CLI版本检查失败，请重新安装或切换至大模型API")
+            login = runner([self.codex_path, "login", "status"], **common)
+        except subprocess.TimeoutExpired as exc:
+            raise ReviewError("Codex CLI登录状态检查超时，请检查本机Codex后重试") from exc
+        except OSError as exc:
+            raise ReviewError(f"无法启动Codex CLI：{exc}") from exc
+        if login.returncode != 0:
+            raise ReviewError(
+                "已检测到Codex CLI，但当前Windows用户尚未登录；"
+                "请先执行 codex login，或切换至大模型API"
+            )
 
     @staticmethod
     def _configured_model() -> str | None:

@@ -1,8 +1,8 @@
 {
     "enabled": false,
     "base_url": "https://api.deepseek.com",
-    "model": "deepseek-v4-pro",
-    "api_key": "",
+    "model": "deepseek-v4-flash",
+  "api_key": "",
   "api_key_env": "DEEPSEEK_API_KEY",
     "timeout_seconds": 60.0,
     "max_retries": 2,

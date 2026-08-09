@@ -44,6 +44,7 @@ from boss_assistant.browser import (
     LoginRequiredError,
 )
 from boss_assistant.browser.driver import GEEK_JOBS_URL
+from boss_assistant.paths import bundled_icon, runtime_root
 from boss_assistant.resume import ResumeInboxError, ResumePdfError, process_inbox_resume
 from boss_assistant.storage import JobStore, JobStoreError
 from boss_assistant.web import parse_job_intents
@@ -55,12 +56,10 @@ REVIEW_MODE_CODEX = "Codex主导"
 REVIEW_MODE_API = "大模型API"
 DEFAULT_RUN_MODE = MODE_SEND
 DEFAULT_REVIEW_MODE = REVIEW_MODE_API
-API_CONFIG_PATH = "config/model_api.local.json"
+API_CONFIG_PATH = runtime_root() / "config" / "model_api.local.json"
 APP_TITLE = f"Boss 求职助手控制台-Win v{__version__}"
 HEADER_TITLE = "Boss 求职助手控制台-Win"
-GUI_DEFAULTS_PATH = (
-    Path(__file__).resolve().parents[2] / "config" / "gui_defaults.txt"
-)
+GUI_DEFAULTS_PATH = runtime_root() / "config" / "gui_defaults.txt"
 # 周末休息设置：不限/双休/大小周/单休（默认不限）。
 WEEKEND_OPTIONS = ("不限", "双休", "大小周", "单休")
 # 经验要求设置：经验不限/1-3年/3-5年/5-10年（默认1-3年）。
@@ -259,23 +258,33 @@ def _set_window_icon(window: "tk.Tk") -> None:
     """Windows 下把应用图标设为窗口图标；图标缺失时静默跳过。"""
 
     try:
-        if getattr(sys, "frozen", False):
-            candidate = Path(sys._MEIPASS) / "icons" / "boss_assistant.ico"
-        else:
-            candidate = (
-                Path(__file__).resolve().parent.parent.parent
-                / "assets"
-                / "icons"
-                / "boss_assistant.ico"
-            )
+        candidate = bundled_icon("boss_assistant.ico")
         if candidate.is_file():
             window.iconbitmap(str(candidate))
     except Exception:
         pass
 
 
+def _enable_windows_dpi_awareness() -> None:
+    """在创建 Tk 窗口前启用系统 DPI 感知，避免图标和界面被 DWM 二次放大。"""
+
+    try:
+        # PROCESS_SYSTEM_DPI_AWARE。必须早于第一个 HWND；125% 缩放时这会让
+        # Tk 直接请求 40×40 大图标，而不是先取 32×32 再由 Windows 放大。
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        return
+    except (AttributeError, OSError):
+        pass
+    try:
+        # Windows 7 兼容回退。
+        ctypes.windll.user32.SetProcessDPIAware()
+    except (AttributeError, OSError):
+        pass
+
+
 class BossControlPanel(tk.Tk):
     def __init__(self) -> None:
+        _enable_windows_dpi_awareness()
         super().__init__()
         self.title(APP_TITLE)
         _set_window_icon(self)
@@ -430,8 +439,7 @@ class BossControlPanel(tk.Tk):
         ttk.Label(
             header,
             text=(
-                "默认实际发送 · 每步随机等待 1-2 秒 · "
-                "自动查看未读消息 · 达到目标公司数立即停止"
+                "默认实际发送 · 自动查看未读消息 · 达到目标公司数立即停止"
             ),
             style="HeaderSub.TLabel",
         ).pack(side="right", pady=(10, 0))

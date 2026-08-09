@@ -12,7 +12,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-if getattr(sys, "frozen", False):
+_compiled = globals().get("__compiled__")
+_containing_dir = getattr(_compiled, "containing_dir", None)
+if _containing_dir:
+    # Nuitka onefile：外置配置和登录态始终位于原始 exe 所在目录。
+    WORKSPACE = Path(_containing_dir).resolve()
+elif getattr(sys, "frozen", False):
     # PyInstaller 冻结运行时：exe 位于项目根目录，模块已内嵌，无需路径注入。
     WORKSPACE = Path(sys.executable).resolve().parent
 else:
