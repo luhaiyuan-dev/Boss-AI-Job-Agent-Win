@@ -351,6 +351,27 @@ class _CdpElement:
             )
         )
 
+    def is_enabled(self) -> bool:
+        """Return whether a control can currently accept a user action."""
+
+        return bool(
+            self.browser._element_value(  # noqa: SLF001
+                self,
+                """
+                (el) => {
+                  const style = getComputedStyle(el);
+                  const classes = String(el.className || '').toLowerCase();
+                  return !el.disabled
+                    && el.getAttribute('aria-disabled') !== 'true'
+                    && !classes.split(/\\s+/).includes('disabled')
+                    && !classes.split(/\\s+/).includes('unable')
+                    && style.pointerEvents !== 'none';
+                }
+                """,
+                False,
+            )
+        )
+
     def get_attribute(self, name: str) -> str | None:
         value = self.browser._element_value(  # noqa: SLF001
             self,
@@ -503,6 +524,19 @@ class EdgeBrowser:
         if self._client is not None:
             self._client.close()
         self._client = _CdpClient(web_socket_url)
+        try:
+            # Boss 的“立即沟通/继续沟通”会在页面被其它窗口遮住时读取
+            # document.visibilityState。仅发送 CDP 鼠标事件并不会改变 hidden
+            # 状态，因而可能出现按钮已收到点击、页面却不跳转。焦点仿真只改变
+            # 当前 CDP 页面会话的前台语义，不会把 Edge 窗口抢到控制台前面。
+            self._client.call(
+                "Emulation.setFocusEmulationEnabled",
+                {"enabled": True},
+            )
+        except BrowserError:
+            self._client.close()
+            self._client = None
+            raise
         self._debugger_address = target.debugger_address
         self._target_id = target.target_id
 
@@ -1080,6 +1114,20 @@ class EdgeBrowser:
         )
         if not changed:
             raise BrowserError("整段写入失败：输入框已失效")
+
+    def editor_value(self, element: _CdpElement) -> str:
+        """Read the live value of an input, textarea, or contenteditable editor."""
+
+        value = self._element_value(
+            element,
+            """
+            (el) => el.isContentEditable
+              ? (el.innerText || el.textContent || '')
+              : (('value' in el ? el.value : el.textContent) || '')
+            """,
+            "",
+        )
+        return str(value or "")
 
     def clear_editor(self, element: _CdpElement) -> None:
         """清空输入框/contenteditable。"""

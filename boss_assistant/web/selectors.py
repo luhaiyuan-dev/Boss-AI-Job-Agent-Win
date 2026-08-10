@@ -955,14 +955,31 @@ def read_communication_quota_notice(
 
 
 def find_greeting_editor(browser: EdgeBrowser) -> WebElement | None:
-    return browser.find_first_css(_sel("chat_editor"))
+    # 聊天页切换会话时可能短暂保留隐藏的旧编辑器；必须返回当前可见节点。
+    for selector in _sel("chat_editor"):
+        for element in browser.find_all_css(selector):
+            if element.is_displayed():
+                return element
+    return None
 
 
 def find_send_button(browser: EdgeBrowser) -> WebElement | None:
-    element = browser.find_first_css(_sel("chat_send_button"))
-    if element is not None:
-        return element
-    return browser.find_clickable_by_text(["发送"], tags=("button", "a", "span", "div"))
+    def actionable(element: WebElement | None) -> bool:
+        if element is None or not element.is_displayed():
+            return False
+        is_enabled = getattr(element, "is_enabled", None)
+        return not callable(is_enabled) or bool(is_enabled())
+
+    # Boss 编辑器已经有文字但 Vue 状态尚未同步时，按钮仍带 disabled 类。
+    # 只返回真正可见且已启用的按钮，避免一次发送动作实际上什么也没发生。
+    for selector in _sel("chat_send_button"):
+        for element in browser.find_all_css(selector):
+            if actionable(element):
+                return element
+    fallback = browser.find_clickable_by_text(
+        ["发送"], tags=("button", "a", "span", "div")
+    )
+    return fallback if actionable(fallback) else None
 
 
 # ---------------------------------------------------------------- 聊天会话列表 ----

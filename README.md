@@ -1,6 +1,6 @@
 # Boss 求职助手控制台（Windows Web）
 
-当前版本：`0.1.7`
+当前版本：`0.1.9`
 
 本项目通过登录专用 Microsoft Edge 的最小原生 CDP 通道读取 Boss直聘 Web 页面，结合本地 PDF 简历和大模型审核岗位，并在 Tkinter 控制台中完成筛选、招呼语生成、受控填充/发送、未读消息巡检、断点保存和结果统计。
 
@@ -219,7 +219,7 @@ powershell -ExecutionPolicy Bypass -File tools\build_exe_nuitka.ps1
 
 构建前，`tools/obfuscate_strings.py` 只在 `build/nuitka/staging/` 创建临时源码副本，并对核心审核、策略和数据库字符串做每次构建随机的压缩/XOR/编码转换；正式源码及目录结构不修改。该措施与 Nuitka 原生编译共同提高批量解包和 AI 一键还原的门槛，但不能承诺抵御有经验者的动态调试、内存抓取或长期逆向。
 
-**EXE 是打包时刻代码与依赖的冻结快照**：每次修改源码后必须重新构建。`tools/build_exe.ps1` 仅保留为旧 PyInstaller 开发回退，不是正式发布方式。
+**EXE 是打包时刻代码与依赖的冻结快照**：每次 BUG 修复和每次修改运行源码后，都必须同步更新版本号并重新构建两个正式 EXE；未完成 EXE 版本、哈希和安全启动验收，不得把该次 BUG 修复标记为完成。`tools/build_exe.ps1` 仅保留为旧 PyInstaller 开发回退，不是正式发布方式。
 
 ## 验证
 
@@ -230,11 +230,12 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 python -m ruff check boss_assistant tests run_control_panel.py tools
 ```
 
-当前 `0.1.7` 基线、Nuitka 构建与环境包校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
+当前 `0.1.9` 基线、自动化流程修复与既有 Nuitka 构建/环境包校验结果见 [VALIDATION_REPORT.md](VALIDATION_REPORT.md)。
 
 ## 安全边界与已知限制
 
 - 实际发送模式会产生真实 Boss 沟通记录，启动前必须核对模式、筛选条件和目标数量。
+- 自动化运行时可以切换到求职助手控制台或其它窗口，也可以让登录专用 Edge 留在后台；程序会保持 Boss 标签页的可见/活动语义，无需手动把浏览器一直置顶，但不能关闭登录专用 Edge 或 Boss 标签页。
 - 进入聊天、点击发送或输入框清空都不是成功证据；只有聊天记录中出现完整我方消息才计为发送成功。
 - 发送动作后的确认失败会停止该岗位，不会自动再次发送。
 - 页面 DOM 或 Boss 规则可能更新；选择器失效时先运行 DOM 探针并根据真实页面修订。
