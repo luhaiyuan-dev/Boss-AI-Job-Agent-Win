@@ -315,6 +315,10 @@ class BossControlPanel(tk.Tk):
         self._close_pending = False
         # 表格里每一行对应的原始结果，供“选中行完整内容”展开全文。
         self._row_records: dict[str, dict[str, object]] = {}
+        # 自动跟随是用户滚动意图，而不是每次插入前的一次 yview 快照。Tk 在连续
+        # insert/see 时可能尚未完成滚动范围重算，临时返回“未到底部”；若直接拿这个
+        # 值做下一条记录的开关，跟随几条后就会被错误地永久关闭。
+        self._follow_latest_results = True
         # TXT只在本GUI实例初次构造时读取一次。界面建立后，开始运行及暂停修改
         # 均只读取StringVar当前值，绝不重新读取TXT覆盖用户在界面中的改动。
         self._startup_defaults = load_gui_defaults()
@@ -709,7 +713,11 @@ class BossControlPanel(tk.Tk):
         self.tree.tag_configure("failed", background=_UI_ROW_FAIL_BG, foreground=_UI_ROW_FAIL_FG)
         self.tree.tag_configure("sent", background=_UI_ROW_OK_BG, foreground=_UI_ROW_OK_FG)
         self.tree.tag_configure("chat", background=_UI_ROW_CHAT_BG, foreground=_UI_ROW_CHAT_FG)
-        y_scroll = ttk.Scrollbar(table_card, orient="vertical", command=self.tree.yview)
+        y_scroll = ttk.Scrollbar(
+            table_card,
+            orient="vertical",
+            command=self._on_result_scroll,
+        )
         x_scroll = ttk.Scrollbar(table_card, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
         self.tree.grid(row=1, column=0, sticky="nsew")
@@ -742,9 +750,35 @@ class BossControlPanel(tk.Tk):
         self._cell_font = tkfont.nametofont("TkDefaultFont")
 
         self.tree.bind("<Button-1>", self._on_tree_click)
-        self.tree.bind("<MouseWheel>", lambda _event: self._hide_cell_viewer())
+        self.tree.bind("<MouseWheel>", self._on_result_user_scroll)
+        self.tree.bind("<Button-4>", self._on_result_user_scroll)
+        self.tree.bind("<Button-5>", self._on_result_user_scroll)
+        self.tree.bind("<KeyRelease>", self._on_result_user_scroll)
         self.tree.bind("<Escape>", lambda _event: self._hide_cell_viewer())
         self.tree.bind("<Configure>", lambda _event: self._hide_cell_viewer())
+
+    def _sync_result_follow_state(self) -> None:
+        """在用户滚动动作完成后，以最终视口决定是否恢复自动跟随。"""
+
+        self._follow_latest_results = result_view_is_at_bottom(self.tree.yview())
+
+    def _schedule_result_follow_sync(self) -> None:
+        # 鼠标滚轮和键盘的 Treeview 类绑定晚于控件绑定执行；等到空闲阶段读取，
+        # 才能拿到本次用户动作完成后的最终 yview。
+        self.after_idle(self._sync_result_follow_state)
+
+    def _on_result_scroll(self, *args: str) -> None:
+        """代理竖向滚动条命令，并同步用户是否已重新回到最新记录。"""
+
+        self._hide_cell_viewer()
+        self.tree.yview(*args)
+        self._schedule_result_follow_sync()
+
+    def _on_result_user_scroll(self, _event: tk.Event | None = None) -> None:
+        """记录滚轮、触控板和键盘滚动后的跟随状态。"""
+
+        self._hide_cell_viewer()
+        self._schedule_result_follow_sync()
 
     def _field(
         self,
@@ -1052,6 +1086,7 @@ class BossControlPanel(tk.Tk):
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._row_records.clear()
+        self._follow_latest_results = True
         self._hide_cell_viewer()
         self.status_var.set("初始化")
         self.status_detail_var.set("正在验证简历、浏览器和MySQL")
@@ -1509,7 +1544,6 @@ class BossControlPanel(tk.Tk):
             row_tag = "sent"
         else:
             row_tag = "even" if seq % 2 == 0 else "odd"
-        follow_latest = result_view_is_at_bottom(self.tree.yview())
         item = self.tree.insert(
             "",
             "end",
@@ -1529,7 +1563,7 @@ class BossControlPanel(tk.Tk):
             tags=(row_tag, "job"),
         )
         self._row_records[item] = result
-        if follow_latest:
+        if self._follow_latest_results:
             self.tree.see(item)
         self._refresh_progress_from_table()
 
@@ -1549,7 +1583,6 @@ class BossControlPanel(tk.Tk):
         detail = str(result.get("reason") or "—")
         if reply:
             detail = f"回复“{reply}”；{detail}"
-        follow_latest = result_view_is_at_bottom(self.tree.yview())
         item = self.tree.insert(
             "",
             "end",
@@ -1569,7 +1602,7 @@ class BossControlPanel(tk.Tk):
             tags=(row_tag, "chat_action"),
         )
         self._row_records[item] = result
-        if follow_latest:
+        if self._follow_latest_results:
             self.tree.see(item)
         self._refresh_progress_from_table()
 

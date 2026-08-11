@@ -2,8 +2,8 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.9`
-- 验证日期：2026-08-10
+- 项目版本：`0.1.10`
+- 验证日期：2026-08-11
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
 
@@ -21,7 +21,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`138 passed`
+- 测试：`140 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
@@ -29,6 +29,17 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 `ruff` 已安装；本次新增的运行时路径、图标与字符串加固工具单独检查通过。全仓审计仍检出 179 条既有风格问题，因此没有把全仓 Ruff 伪装成通过，也没有借本次打包升级扩大修改范围。
 
 构建和测试统一使用项目 `.venv`，`pip check` 返回 `No broken requirements found`。
+
+## 0.1.10 GUI 最新记录自动跟随修复
+
+- 现场确认用户实际运行的是项目根目录 `Boss求职助手.exe`：旧产物最后构建于 2026-08-10，文件版本为 `0.1.9.0`，属于修改前的冻结快照；此前只修改并验证 Python 源码、没有重建正式 EXE，因此实际界面没有加载源码修复。
+- 原实现每追加一条记录，都在插入前读取一次 `Treeview.yview()`；Tk 连续执行 `insert()` / `see()` 时可能尚未完成滚动范围重算，临时返回未到底部的旧值，随后每条记录都不再调用 `see()`，表现为回到底部后只跟随几条便停止。
+- 自动跟随现改为稳定的 `_follow_latest_results` 状态：只有用户通过滚轮、触控板、键盘或竖向滚动条改变视口后，才在 Tk 空闲阶段读取最终 `yview`；离开底部暂停，重新到达底部恢复。岗位记录与消息巡检记录共用该状态，新一轮运行时重置为跟随。
+- 真实 Tk 事件烟测先插入 50 行，从顶部生成 Windows `<MouseWheel>` 事件滚到底后得到 `yview=(0.82, 1.0)` 且跟随状态为真；不执行空闲刷新地连续追加 15 行后仍为 `yview=(0.8615384615384616, 1.0)`。另验证手动离开底部后新增记录不打断历史查看。
+- 回归新增连续刷新期间滞后 `yview`、手动查看历史后恢复以及竖向滚动条 `moveto 1.0` 三条路径；全量 `python -m pytest -q` 为 `140 passed`，`compileall` 通过，项目 `.venv` `pip check` 为 `No broken requirements found`。
+- 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建两个正式 EXE；编译报告确认 `boss_assistant.gui.app` 为 `CompiledPythonModule`，两个 PE 均为 GUI 子系统 2，文件版本与产品版本均为 `0.1.10.0`，临时加固 staging 已删除。
+- `Boss求职助手.exe`：27,766,784 字节，SHA-256 `8D89F87424E9DDB7DA4B2367B2CFDE72572A16D2DD137778BC5F45F42107222D`；`Boss登录浏览器.exe`：14,177,792 字节，SHA-256 `79BB2DB41EF735FB883E80C7D360AD416B2748723D824E497C1494092C4F8E7D`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.10`、窗口响应正常；未点击“开始”，随后正常关闭并确认无新 Win-Web `Boss求职助手` 进程残留。当前运行中的 Android `v1.3.4` GUI 未被关闭或修改。
 
 ## 0.1.9 后台窗口沟通跳转修复
 

@@ -2354,12 +2354,12 @@ def test_result_view_only_follows_latest_when_at_bottom() -> None:
 def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     class _Tree:
         def __init__(self) -> None:
-            self.bottom = False
+            self.view = (0.2, 0.7)
             self.rows: list[str] = []
             self.seen: list[str] = []
 
         def yview(self):
-            return (0.2, 0.7) if not self.bottom else (0.5, 1.0)
+            return self.view
 
         def insert(self, *_args, **_kwargs):
             row = f"row-{len(self.rows) + 1}"
@@ -2370,6 +2370,7 @@ def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     panel = SimpleNamespace(
         tree=tree,
         _row_records={},
+        _follow_latest_results=False,
         _row_counts=lambda: (0, 0),
         _refresh_progress_from_table=lambda: None,
     )
@@ -2384,9 +2385,84 @@ def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
     assert tree.seen == []
 
-    tree.bottom = True
+    tree.view = (0.5, 1.0)
+    BossControlPanel._sync_result_follow_state(panel)  # type: ignore[arg-type]
     BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
     assert tree.seen == ["row-2"]
+
+
+def test_gui_follow_mode_survives_stale_yview_during_rapid_results() -> None:
+    class _Tree:
+        def __init__(self) -> None:
+            self.rows: list[str] = []
+            self.seen: list[str] = []
+
+        def yview(self):
+            # 模拟 Tk 连续 insert/see 后尚未完成滚动范围重算时的短暂旧值。
+            return (0.4, 0.9)
+
+        def insert(self, *_args, **_kwargs):
+            row = f"row-{len(self.rows) + 1}"
+            self.rows.append(row)
+            return row
+
+        def see(self, row: str) -> None:
+            self.seen.append(row)
+
+    tree = _Tree()
+    panel = SimpleNamespace(
+        tree=tree,
+        _row_records={},
+        _follow_latest_results=True,
+        _row_counts=lambda: (len(tree.rows), 0),
+        _refresh_progress_from_table=lambda: None,
+    )
+    result = {
+        "created_at": "2026-08-11T12:00:00+08:00",
+        "company_name": "示例科技",
+        "job_name": "Python开发",
+        "delivery_status": "未投递",
+    }
+
+    for _ in range(6):
+        BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
+
+    assert tree.seen == [f"row-{index}" for index in range(1, 7)]
+    assert panel._follow_latest_results is True
+
+
+def test_gui_scrollbar_restores_follow_mode_at_bottom() -> None:
+    class _Tree:
+        def __init__(self) -> None:
+            self.view = (0.2, 0.7)
+            self.commands: list[tuple[str, ...]] = []
+
+        def yview(self, *args: str):
+            if args:
+                self.commands.append(args)
+                if args == ("moveto", "1.0"):
+                    self.view = (0.5, 1.0)
+                return None
+            return self.view
+
+    tree = _Tree()
+    panel = SimpleNamespace(
+        tree=tree,
+        _follow_latest_results=False,
+        _hide_cell_viewer=lambda: None,
+    )
+    panel._schedule_result_follow_sync = lambda: (  # type: ignore[attr-defined]
+        BossControlPanel._sync_result_follow_state(panel)  # type: ignore[arg-type]
+    )
+
+    BossControlPanel._on_result_scroll(  # type: ignore[arg-type]
+        panel,
+        "moveto",
+        "1.0",
+    )
+
+    assert tree.commands == [("moveto", "1.0")]
+    assert panel._follow_latest_results is True
 
 
 def test_recent_success_requires_exact_company_and_job(tmp_path: Path) -> None:
