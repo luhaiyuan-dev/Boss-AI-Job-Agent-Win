@@ -52,6 +52,10 @@ class AutomationMySqlStore:
             "password": self.config.password,
             "connection_timeout": 5,
             "charset": "utf8mb4",
+            # mysql-connector-python 9.7 的 C 扩展在 Python 3.13 + Nuitka
+            # onefile 中连接失败时只会抛出 "Failed raising error."。纯 Python
+            # 协议实现已在同一份外置配置和同构 onefile 探针中验证可用。
+            "use_pure": True,
         }
         if with_database:
             arguments["database"] = self.config.database

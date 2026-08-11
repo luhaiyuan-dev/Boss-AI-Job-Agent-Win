@@ -30,6 +30,11 @@ from boss_assistant.automation.models import (
     JobExpectation,
     JobIntentData,
 )
+from boss_assistant.automation.mysql_store import (
+    AutomationMySqlStore,
+    MySqlConfig,
+    MySqlStoreError,
+)
 from boss_assistant.automation.policy import (
     card_rejection_reason,
     card_review_rejection_reason,
@@ -60,6 +65,7 @@ from boss_assistant.automation.runner import (
 )
 from boss_assistant.browser.driver import (
     BrowserError,
+    EdgeDebugTarget,
     EdgeBrowser,
     ElementNotFoundError,
     LoginRequiredError,
@@ -84,6 +90,8 @@ from boss_assistant.web.selectors import (
     extract_job_cards,
     find_chat_entry,
     find_expectation_element,
+    find_greeting_editor,
+    find_send_button,
     parse_job_intents,
     read_communication_quota_notice,
     read_current_chat_identity,
@@ -160,6 +168,45 @@ def test_login_launcher_reuses_edge_without_a_console_window(tmp_path: Path) -> 
     assert kwargs["stdout"] is subprocess.DEVNULL
     assert kwargs["stderr"] is subprocess.DEVNULL
     assert kwargs["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def test_login_launcher_disables_background_page_throttling() -> None:
+    source = Path("tools/open_login_edge.py").read_text(encoding="utf-8")
+
+    assert '"--disable-background-timer-throttling"' in source
+    assert '"--disable-backgrounding-occluded-windows"' in source
+    assert '"--disable-renderer-backgrounding"' in source
+
+
+def test_cdp_target_emulates_visible_focus_without_bringing_window_to_front() -> None:
+    browser = EdgeBrowser()
+    target = EdgeDebugTarget(
+        debugger_address="127.0.0.1:63289",
+        url="https://www.zhipin.com/web/geek/jobs",
+        title="Boss直聘",
+        target_id="boss-page",
+        source="test",
+    )
+    calls: list[tuple[str, dict[str, object] | None]] = []
+    client = SimpleNamespace(
+        call=lambda method, params=None: calls.append((method, params)) or {},
+        close=lambda: None,
+    )
+    payload = {
+        "id": "boss-page",
+        "type": "page",
+        "webSocketDebuggerUrl": "ws://127.0.0.1/devtools/page/boss-page",
+    }
+
+    with patch.object(browser, "_target_payloads", return_value=[payload]), patch(
+        "boss_assistant.browser.driver._CdpClient", return_value=client
+    ):
+        browser._connect_target(target)  # noqa: SLF001
+
+    assert calls == [
+        ("Emulation.setFocusEmulationEnabled", {"enabled": True})
+    ]
+    assert not any(method == "Page.bringToFront" for method, _params in calls)
 
 
 def test_exe_build_notifies_explorer_to_refresh_both_icons() -> None:
@@ -267,6 +314,45 @@ def test_win_offline_bundle_manifest_matches_files_and_has_no_python_runtime() -
         assert file_path.is_file(), package["path"]
         assert file_path.stat().st_size == package["bytes"]
         assert re.fullmatch(r"[0-9A-F]{64}", package["sha256"])
+
+
+class _RecordingMySqlConnector:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    def connect(self, **arguments: object) -> object:
+        self.calls.append(arguments)
+        if self.error is not None:
+            raise self.error
+        return object()
+
+
+def test_mysql_store_forces_pure_python_connector_for_nuitka_onefile() -> None:
+    connector = _RecordingMySqlConnector()
+    store = AutomationMySqlStore(
+        MySqlConfig("127.0.0.1", 3306, "test_user", "test_password", "test_db"),
+        connector=connector,
+    )
+
+    store._connect(with_database=False)
+    store._connect(with_database=True)
+
+    assert connector.calls[0]["use_pure"] is True
+    assert "database" not in connector.calls[0]
+    assert connector.calls[1]["use_pure"] is True
+    assert connector.calls[1]["database"] == "test_db"
+
+
+def test_mysql_store_preserves_connector_error_context() -> None:
+    connector = _RecordingMySqlConnector(error=RuntimeError("authentication failed"))
+    store = AutomationMySqlStore(
+        MySqlConfig("127.0.0.1", 3306, "test_user", "test_password", "test_db"),
+        connector=connector,
+    )
+
+    with pytest.raises(MySqlStoreError, match="MySQL 连接失败：authentication failed"):
+        store._connect(with_database=True)
 
 
 def test_win_offline_setup_installs_only_host_environment_and_writes_templates() -> None:
@@ -992,6 +1078,9 @@ def test_greeting_send_waits_before_send_action() -> None:
         def type_stream(self, _element, text, *, control_point=None):
             self.typed = text
 
+        def editor_value(self, _element) -> str:
+            return self.typed
+
     browser = _ChatBrowser()
     runner = BossAutomationRunner(
         browser,  # type: ignore[arg-type]
@@ -1005,7 +1094,7 @@ def test_greeting_send_waits_before_send_action() -> None:
     with patch.object(
         runner,
         "_wait",
-        side_effect=(editor, True),
+        side_effect=(editor, send_button, True),
     ), patch.object(
         runner,
         "_pause_before",
@@ -1025,6 +1114,66 @@ def test_greeting_send_waits_before_send_action() -> None:
     assert "发送招呼语" in [
         call.args[0] for call in pause_before.call_args_list
     ]
+
+
+def test_greeting_editor_is_repaired_before_any_send_when_stream_reorders_text() -> None:
+    class _ChatBrowser:
+        driver = None
+
+        def __init__(self) -> None:
+            self.typed = ""
+            self.repaired: list[str] = []
+            self.clicked: list[tuple[object, str]] = []
+
+        @staticmethod
+        def clear_editor(_element) -> None:
+            return None
+
+        def type_stream(self, _element, text, *, control_point=None):
+            self.typed = text.replace("TypeScript", "Typecript") + "S"
+
+        def editor_value(self, _element) -> str:
+            return self.typed
+
+        def set_value(self, _element, text: str) -> None:
+            self.typed = text
+            self.repaired.append(text)
+
+        def click(self, element, *, description="") -> None:
+            self.clicked.append((element, description))
+
+    browser = _ChatBrowser()
+    runner = BossAutomationRunner(
+        browser,  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+    )
+    editor = _Element("editor")
+    send_button = _Element("send")
+    greeting = "您好，我有全栈开发经验，熟悉TypeScript，希望与您进一步沟通该岗位"
+
+    def click_ready(_finder, description, **_kwargs):
+        element = editor if "输入框" in description else send_button
+        if element is send_button:
+            browser.click(element, description=description)
+        return element
+
+    with patch.object(
+        runner, "_click_when_ready", side_effect=click_ready
+    ), patch.object(
+        runner, "_wait_for_displayed", return_value=editor
+    ), patch.object(
+        runner, "_wait", side_effect=lambda predicate, *_args, **_kwargs: predicate(None)
+    ), patch.object(
+        runner, "_pause_before", return_value=1.2
+    ), patch.object(
+        runner, "_greeting_in_messages", side_effect=(False, True)
+    ):
+        runner._fill_or_send_greeting(greeting, send=True, open_chat=False)  # noqa: SLF001
+
+    assert browser.repaired == [greeting]
+    assert browser.typed == greeting
+    assert browser.clicked == [(send_button, "发送招呼语")]
 
 
 def test_communication_quota_notice_requires_exact_text_and_visible_button() -> None:
@@ -1327,6 +1476,9 @@ def test_quota_notice_is_closed_then_original_chat_click_is_retried() -> None:
         def type_stream(self, _element, text, *, control_point=None):
             self.typed = text
 
+        def editor_value(self, _element) -> str:
+            return self.typed
+
     browser = _ChatBrowser()
     runner = BossAutomationRunner(
         browser,  # type: ignore[arg-type]
@@ -1430,6 +1582,73 @@ def test_quota_notice_uses_automatic_chat_transition_without_second_click() -> N
 
     assert click_when_ready.call_count == 1
     assert browser.clicked == [(confirm, "关闭当日沟通次数提醒")]
+
+
+def test_open_chat_reselects_expected_detail_once_when_review_redraws_panel() -> None:
+    browser = SimpleNamespace(
+        driver=None,
+        current_url="https://www.zhipin.com/web/geek/jobs",
+    )
+    runner = BossAutomationRunner(
+        browser,  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+    )
+    card = _card()
+    entry = _Element("entry")
+
+    with patch(
+        "boss_assistant.automation.runner.find_greeting_editor", return_value=None
+    ), patch.object(
+        runner,
+        "_click_when_ready",
+        side_effect=(ElementNotFoundError("旧详情无入口"), entry),
+    ) as click_when_ready, patch.object(
+        runner, "_wait", side_effect=(True, "editor")
+    ), patch.object(
+        runner, "_sleep"
+    ), patch(
+        "boss_assistant.automation.runner.select_job_card_inline", return_value=True
+    ):
+        runner._open_chat_with_quota_notice_retry(expected_card=card)  # noqa: SLF001
+
+    descriptions = [call.args[1] for call in click_when_ready.call_args_list]
+    assert descriptions == ["点击“立即沟通”", "重新定位后点击“立即沟通”"]
+
+
+def test_open_chat_retries_once_when_click_is_swallowed_on_same_detail() -> None:
+    browser = SimpleNamespace(
+        driver=None,
+        current_url="https://www.zhipin.com/web/geek/jobs",
+    )
+    runner = BossAutomationRunner(
+        browser,  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+    )
+    card = _card()
+    entry = _Element("entry")
+
+    with patch(
+        "boss_assistant.automation.runner.find_greeting_editor", return_value=None
+    ), patch.object(
+        runner, "_click_when_ready", return_value=entry
+    ) as click_when_ready, patch.object(
+        runner,
+        "_wait",
+        side_effect=(ElementNotFoundError("点击后未切换"), "editor"),
+    ), patch.object(
+        runner, "_detail_chat_entry", return_value=entry
+    ), patch.object(
+        runner, "_sleep"
+    ):
+        runner._open_chat_with_quota_notice_retry(expected_card=card)  # noqa: SLF001
+
+    descriptions = [call.args[1] for call in click_when_ready.call_args_list]
+    assert descriptions == [
+        "点击“立即沟通”",
+        "首次点击未切换后重新点击沟通入口",
+    ]
 
 
 @pytest.mark.parametrize("prefix", ("已读 ", "送达 ", "[已读]", "[送达]"))
@@ -1901,6 +2120,38 @@ def test_find_chat_entry_skips_hidden_stale_duplicate() -> None:
     assert find_chat_entry(_Browser()) is visible  # type: ignore[arg-type]
 
 
+def test_chat_editor_and_send_button_skip_hidden_or_disabled_stale_nodes() -> None:
+    class _Control(_Element):
+        def __init__(self, name: str, *, displayed: bool = True, enabled: bool = True):
+            super().__init__(name, displayed=displayed)
+            self.enabled = enabled
+
+        def is_enabled(self) -> bool:
+            return self.enabled
+
+    hidden_editor = _Control("hidden-editor", displayed=False)
+    visible_editor = _Control("visible-editor")
+    disabled_send = _Control("disabled-send", enabled=False)
+    enabled_send = _Control("enabled-send")
+
+    class _Browser:
+        @staticmethod
+        def find_all_css(selector: str):
+            if selector == "#chat-input":
+                return [hidden_editor, visible_editor]
+            if selector == ".btn-send":
+                return [disabled_send, enabled_send]
+            return []
+
+        @staticmethod
+        def find_clickable_by_text(*_args, **_kwargs):
+            return None
+
+    browser = _Browser()
+    assert find_greeting_editor(browser) is visible_editor  # type: ignore[arg-type]
+    assert find_send_button(browser) is enabled_send  # type: ignore[arg-type]
+
+
 def test_current_chat_job_info_reads_name_salary_and_location() -> None:
     elements = {
         ".chat-conversation [class*='position-name']": _Element("Python开发工程师"),
@@ -2103,12 +2354,12 @@ def test_result_view_only_follows_latest_when_at_bottom() -> None:
 def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     class _Tree:
         def __init__(self) -> None:
-            self.bottom = False
+            self.view = (0.2, 0.7)
             self.rows: list[str] = []
             self.seen: list[str] = []
 
         def yview(self):
-            return (0.2, 0.7) if not self.bottom else (0.5, 1.0)
+            return self.view
 
         def insert(self, *_args, **_kwargs):
             row = f"row-{len(self.rows) + 1}"
@@ -2119,6 +2370,7 @@ def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     panel = SimpleNamespace(
         tree=tree,
         _row_records={},
+        _follow_latest_results=False,
         _row_counts=lambda: (0, 0),
         _refresh_progress_from_table=lambda: None,
     )
@@ -2133,9 +2385,84 @@ def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
     assert tree.seen == []
 
-    tree.bottom = True
+    tree.view = (0.5, 1.0)
+    BossControlPanel._sync_result_follow_state(panel)  # type: ignore[arg-type]
     BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
     assert tree.seen == ["row-2"]
+
+
+def test_gui_follow_mode_survives_stale_yview_during_rapid_results() -> None:
+    class _Tree:
+        def __init__(self) -> None:
+            self.rows: list[str] = []
+            self.seen: list[str] = []
+
+        def yview(self):
+            # 模拟 Tk 连续 insert/see 后尚未完成滚动范围重算时的短暂旧值。
+            return (0.4, 0.9)
+
+        def insert(self, *_args, **_kwargs):
+            row = f"row-{len(self.rows) + 1}"
+            self.rows.append(row)
+            return row
+
+        def see(self, row: str) -> None:
+            self.seen.append(row)
+
+    tree = _Tree()
+    panel = SimpleNamespace(
+        tree=tree,
+        _row_records={},
+        _follow_latest_results=True,
+        _row_counts=lambda: (len(tree.rows), 0),
+        _refresh_progress_from_table=lambda: None,
+    )
+    result = {
+        "created_at": "2026-08-11T12:00:00+08:00",
+        "company_name": "示例科技",
+        "job_name": "Python开发",
+        "delivery_status": "未投递",
+    }
+
+    for _ in range(6):
+        BossControlPanel._add_result(panel, result)  # type: ignore[arg-type]
+
+    assert tree.seen == [f"row-{index}" for index in range(1, 7)]
+    assert panel._follow_latest_results is True
+
+
+def test_gui_scrollbar_restores_follow_mode_at_bottom() -> None:
+    class _Tree:
+        def __init__(self) -> None:
+            self.view = (0.2, 0.7)
+            self.commands: list[tuple[str, ...]] = []
+
+        def yview(self, *args: str):
+            if args:
+                self.commands.append(args)
+                if args == ("moveto", "1.0"):
+                    self.view = (0.5, 1.0)
+                return None
+            return self.view
+
+    tree = _Tree()
+    panel = SimpleNamespace(
+        tree=tree,
+        _follow_latest_results=False,
+        _hide_cell_viewer=lambda: None,
+    )
+    panel._schedule_result_follow_sync = lambda: (  # type: ignore[attr-defined]
+        BossControlPanel._sync_result_follow_state(panel)  # type: ignore[arg-type]
+    )
+
+    BossControlPanel._on_result_scroll(  # type: ignore[arg-type]
+        panel,
+        "moveto",
+        "1.0",
+    )
+
+    assert tree.commands == [("moveto", "1.0")]
+    assert panel._follow_latest_results is True
 
 
 def test_recent_success_requires_exact_company_and_job(tmp_path: Path) -> None:
@@ -2532,7 +2859,7 @@ def test_open_card_waits_for_matching_description_not_early_chat_button() -> Non
     ), patch(
         "boss_assistant.automation.runner.align_detail_identity",
         side_effect=lambda snapshot, _card: snapshot,
-    ), patch.object(
+    ) as align_identity, patch.object(
         runner, "_pause_before", return_value=1.0
     ), patch.object(
         runner, "_sleep"
@@ -2540,6 +2867,8 @@ def test_open_card_waits_for_matching_description_not_early_chat_button() -> Non
         runner, "_wait", side_effect=wait_until_ready
     ):
         runner._open_card(card)
+
+    align_identity.assert_not_called()
 
 
 def test_run_reloads_cards_before_processing_next_after_return(

@@ -2,8 +2,8 @@
 
 ## 验证基线
 
-- 项目版本：`0.1.6`
-- 验证日期：2026-08-09
+- 项目版本：`0.1.10`
+- 验证日期：2026-08-11
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
 
@@ -21,7 +21,7 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`130 passed`
+- 测试：`140 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
@@ -29,6 +29,52 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 `ruff` 已安装；本次新增的运行时路径、图标与字符串加固工具单独检查通过。全仓审计仍检出 179 条既有风格问题，因此没有把全仓 Ruff 伪装成通过，也没有借本次打包升级扩大修改范围。
 
 构建和测试统一使用项目 `.venv`，`pip check` 返回 `No broken requirements found`。
+
+## 0.1.10 GUI 最新记录自动跟随修复
+
+- 现场确认用户实际运行的是项目根目录 `Boss求职助手.exe`：旧产物最后构建于 2026-08-10，文件版本为 `0.1.9.0`，属于修改前的冻结快照；此前只修改并验证 Python 源码、没有重建正式 EXE，因此实际界面没有加载源码修复。
+- 原实现每追加一条记录，都在插入前读取一次 `Treeview.yview()`；Tk 连续执行 `insert()` / `see()` 时可能尚未完成滚动范围重算，临时返回未到底部的旧值，随后每条记录都不再调用 `see()`，表现为回到底部后只跟随几条便停止。
+- 自动跟随现改为稳定的 `_follow_latest_results` 状态：只有用户通过滚轮、触控板、键盘或竖向滚动条改变视口后，才在 Tk 空闲阶段读取最终 `yview`；离开底部暂停，重新到达底部恢复。岗位记录与消息巡检记录共用该状态，新一轮运行时重置为跟随。
+- 真实 Tk 事件烟测先插入 50 行，从顶部生成 Windows `<MouseWheel>` 事件滚到底后得到 `yview=(0.82, 1.0)` 且跟随状态为真；不执行空闲刷新地连续追加 15 行后仍为 `yview=(0.8615384615384616, 1.0)`。另验证手动离开底部后新增记录不打断历史查看。
+- 回归新增连续刷新期间滞后 `yview`、手动查看历史后恢复以及竖向滚动条 `moveto 1.0` 三条路径；全量 `python -m pytest -q` 为 `140 passed`，`compileall` 通过，项目 `.venv` `pip check` 为 `No broken requirements found`。
+- 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建两个正式 EXE；编译报告确认 `boss_assistant.gui.app` 为 `CompiledPythonModule`，两个 PE 均为 GUI 子系统 2，文件版本与产品版本均为 `0.1.10.0`，临时加固 staging 已删除。
+- `Boss求职助手.exe`：27,766,784 字节，SHA-256 `8D89F87424E9DDB7DA4B2367B2CFDE72572A16D2DD137778BC5F45F42107222D`；`Boss登录浏览器.exe`：14,177,792 字节，SHA-256 `79BB2DB41EF735FB883E80C7D360AD416B2748723D824E497C1494092C4F8E7D`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.10`、窗口响应正常；未点击“开始”，随后正常关闭并确认无新 Win-Web `Boss求职助手` 进程残留。当前运行中的 Android `v1.3.4` GUI 未被关闭或修改。
+
+## 0.1.9 后台窗口沟通跳转修复
+
+- 最近一次运行统计为 10 次失败：运行记录中有 7 个岗位明确失败于“沟通入口已点击但聊天页未出现”，1 个岗位失败于发送后的消息确认，另 2 个岗位是大模型详情硬校验连续三次失败。7 次沟通跳转失败集中出现在浏览器被其它窗口覆盖的两个时段，切回登录专用 Edge 后中间一段恢复发送成功。
+- 在“Boss 求职助手控制台”位于前台时对当前登录专用 Edge 做只读实时探针，修复前页面返回 `document.visibilityState=hidden`、`document.hidden=true`；同一 CDP 会话启用 `Emulation.setFocusEmulationEnabled` 后立刻变为 `visible/false`，且 Windows 前台窗口没有切到 Edge，确认根因是页面后台可见性而非沟通按钮选择器。
+- 每次接管现有 Boss 标签页或在 Boss 标签页之间切换时，现自动启用 CDP 焦点仿真；登录浏览器启动参数另新增后台计时器、被遮挡窗口和渲染器防节流。用户可切到控制台或其它窗口，Edge 无需一直置顶，但必须保持登录专用 Edge 和 Boss 标签页打开。
+- 回归覆盖每次 CDP 目标连接都启用焦点仿真、绝不调用会抢前台的 `Page.bringToFront`，以及登录浏览器的三项防节流参数；`python -m pytest tests/test_web_automation.py -q` 为 `138 passed`。
+- 修改后的源码接管当前后台 Boss 页面时只读返回 `visibility=visible`、`hidden=false`、`focus=true`；验证没有点击岗位沟通入口、没有填入或发送招呼语。
+- 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建两个正式 EXE；编译报告包含本次修改的 `driver` 与 `open_login_edge`，文件版本和产品版本均为 `0.1.9.0`，临时加固 staging 已删除。
+- `Boss求职助手.exe`：27,771,904 字节，SHA-256 `9FAE8A43029DF7C63801DE503B8C5A68AE96FC439398B868B0E006E47ABA10EA`；`Boss登录浏览器.exe`：14,177,280 字节，SHA-256 `6FF4A94438C040F5B8843E328A771E6CF02F106D67F3A7D1C4AF0874732583A0`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.9`、窗口响应正常；未点击“开始”，随后正常关闭并确认无新 Win-Web `Boss求职助手` 进程残留。新登录浏览器 EXE 返回退出码 `0`，检测并复用现有 `127.0.0.1:63289` Boss 页面；前后 Edge 进程数均为 30、页面目标数均为 2，没有重复打开窗口或页面。
+
+## 0.1.8 详情身份与招呼语发送可靠性修复
+
+- 对 2026-08-10 最近两轮运行记录做了逐项统计：一轮出现 2 次发送确认失败和 4 次后续沟通入口超时，另一轮出现 1 次发送确认失败和 3 次后续超时，呈现发送失败后的连续级联，而非孤立随机错误。
+- 详情就绪校验原先先调用 `align_detail_identity()`，把页面岗位名覆盖成卡片岗位名后再比较，导致旧详情也必然通过；现改为先核对页面原始岗位名和完整正文，发送前若面板已重绘，只按岗位 ID、详情链接或指纹重新选择一次并重新校验。
+- 原错误文案还会把“沟通入口已点击但聊天页未切换”误报成“详情按钮未出现”。现已区分两种状态：仍明确停留在同一岗位详情且入口可见时只安全重放一次；页面身份不明时直接停止，且不会填入或发送招呼语。
+- 真实只读会话复核确认一个失败岗位的聊天记录中已有我方消息，但 `TypeScript` 被逐字输入为 `Typecript`，丢失的 `S` 出现在句末；另两个失败会话消息数为 0。现发送前回读 contenteditable 的真实文本，任何差异都在发送前整段校正并再次核验，同时只采用可见编辑器和真正启用的发送按钮。
+- 保留原安全边界：自定义招呼语发送动作仍最多执行一次；发送后聊天气泡无法确认时不会再次点击发送。真实页面验证仅进行了职位页、消息列表和对应会话的只读 DOM 检查，未补发消息、未覆盖草稿、未触发新的岗位沟通。
+- 修复后的实时只读探针识别到 15 张当前岗位卡；选择首张卡后页面原始岗位名与卡片一致、详情正文完整且“立即沟通”入口可见。已有会话中可正确解析 1 条我方消息；空编辑器可见时 disabled 发送按钮被正确排除为不可发送。探针随后恢复到职位页。
+- 回归覆盖详情原始身份、详情重定位、沟通点击被吞后的单次重试、隐藏/disabled 控件过滤、逐字输入错位的发送前校正以及原额度弹窗链路；`python -m pytest tests -q` 为 `136 passed`。
+- 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建两个正式 EXE；编译报告包含本次修改的 `runner`、`driver` 和 `selectors` 模块，文件版本与产品版本均为 `0.1.8.0`，临时加固 staging 已按构建规则删除。
+- `Boss求职助手.exe`：27,769,856 字节，SHA-256 `FA104AC6AB58CBC867EB0D546B17522B5BAF906B08AE94D562BD23BEE58B19B1`；`Boss登录浏览器.exe`：14,177,280 字节，SHA-256 `E7E04D03522C4895EF17D77518946AD3FB978B782CF09C17DB5A85A006802023`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.8`、窗口响应正常；未点击“开始”，随后关闭本次 onefile 父/子进程，确认无新 `Boss求职助手` 进程残留。
+- 新登录浏览器 EXE 在检测到现有 Boss 专用 Edge 页面后以退出码 `0` 正常结束，没有重复打开窗口或触发登录错误。
+
+## 0.1.7 MySQL onefile 连接兼容修复
+
+- 本机 `MYSQL80` 服务处于 Running/Automatic，`127.0.0.1:3306` 正在监听且 TCP 探测成功；外置配置所需字段均存在（验证过程不输出用户名、密码或 API Key）。
+- 源码环境使用同一份外置配置时，mysql-connector-python 9.7.0 的 C 扩展与纯 Python 实现均能连接并执行 `SELECT 1`，排除了服务未启动、端口不可达和凭据错误。
+- 使用 Python 3.13、Nuitka onefile 和正式相同的 `--include-package=mysql.connector` 构建隔离探针后，C 扩展稳定复现 `RuntimeError: Failed raising error.`，而同一 EXE 内切换 `use_pure=True` 即连接成功。故障来自 `_mysql_connector.pyd` 在该打包组合中的异常转换路径，不是 MySQL 环境部署失败。
+- 正式持久化连接现固定传入 `use_pure=True`；新增回归测试锁定建库前/建库后两条连接路径均不得回退 C 扩展，同时验证底层错误上下文仍会保留。该改动不读取或写入 API Key，也不改变数据库地址、账号、密码和表结构。
+- 两个正式 EXE 已使用 Python 3.13.14、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建，PE 文件版本与产品版本均为 `0.1.7.0`。加固构建副本含 `use_pure=True`，主程序 Nuitka 报告含 `boss_assistant.automation.mysql_store`，证明修复进入正式产物。
+- `Boss求职助手.exe`：27,720,704 字节，SHA-256 `7CB5B9052E1216C7AE51F50570DF9D7913A9642BE264A7D9D21478192CDA3060`；`Boss登录浏览器.exe`：14,175,744 字节，SHA-256 `A2EC25DEC406FD9F1E8D1ADFA02DA200FA93E58BEEE72AFB2AF45B8A6F642AED`。
+- 新主 EXE 安全启动后窗口标题为 `Boss 求职助手控制台-Win v0.1.7` 且响应正常；未点击“开始”，随后关闭父/子进程。隔离 onefile 探针再次得到 C 扩展 `Failed raising error.`、纯 Python 路径 `connected=True`，与正式修复选择一致。
 
 ## 0.1.6 Nuitka、外置配置与环境包升级
 

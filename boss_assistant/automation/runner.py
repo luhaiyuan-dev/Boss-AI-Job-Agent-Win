@@ -228,6 +228,22 @@ def _same_company(left: str | None, right: str | None) -> bool:
     return len(shorter) >= 4 and shorter in longer
 
 
+def _job_identity(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKC", value or "").casefold()
+    return re.sub(r"[^0-9a-z一-鿿+#]+", "", normalized)
+
+
+def _same_job_name(left: str | None, right: str | None) -> bool:
+    left_key = _job_identity(left)
+    right_key = _job_identity(right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    shorter, longer = sorted((left_key, right_key), key=len)
+    return len(shorter) >= 4 and shorter in longer
+
+
 def recommendation_cards_ready(
     cards: tuple[JobCard, ...],
     target_city: str | None,
@@ -881,13 +897,13 @@ class BossAutomationRunner:
             )
 
         def expected_detail_is_ready(_browser) -> bool:
-            job = align_detail_identity(
-                read_job_detail(self.browser), card
-            ).job_data
+            # 这里必须核对页面原始岗位名。若先调用 align_detail_identity()，它会
+            # 按设计把岗位名覆盖成卡片名，导致旧详情也永远“匹配”当前卡片。
+            job = read_job_detail(self.browser).job_data
             return bool(
                 job.is_boss_job_detail_page
                 and job.job_description.value
-                and _same_company(card.job_name, job.job_name.value)
+                and _same_job_name(card.job_name, job.job_name.value)
             )
 
         self._wait(
@@ -1612,11 +1628,12 @@ class BossAutomationRunner:
         *,
         send: bool,
         open_chat: bool = True,
+        expected_card: JobCard | None = None,
     ) -> None:
         if open_chat:
             self._status("沟通页面", "正在点击立即沟通")
             try:
-                self._open_chat_with_quota_notice_retry()
+                self._open_chat_with_quota_notice_retry(expected_card=expected_card)
             except ElementNotFoundError as exc:
                 raise BossAutomationError(
                     f"等待 {self.config.page_wait_seconds:g} 秒后详情页仍未出现可靠的"
@@ -1638,6 +1655,25 @@ class BossAutomationRunner:
             greeting,
             control_point=self._control_point if self.control else None,
         )
+
+        # Input.insertText 逐字符写入 Boss 的响应式 contenteditable 时，实测曾把
+        # TypeScript 写成 Typecript，并把丢失的 S 挪到整句末尾。发送前必须回读；
+        # 若有任何差异，只修复输入框一次，尚未触发发送，不存在重复沟通风险。
+        actual_editor_text = self.browser.editor_value(editor)
+        if _chat_text_identity(actual_editor_text) != _chat_text_identity(greeting):
+            self.output("[提示] 招呼语逐字输入结果与目标不一致，发送前正在安全校正")
+            self._pause_before("校正沟通页面输入框")
+            editor = self._wait_for_displayed(
+                lambda: find_greeting_editor(self.browser),
+                "校正前的沟通页面输入框",
+            )
+            self.browser.set_value(editor, greeting)
+            self._wait(
+                lambda _b: _chat_text_identity(self.browser.editor_value(editor))
+                == _chat_text_identity(greeting),
+                "招呼语输入框内容校验",
+                timeout=min(3.0, self.config.page_wait_seconds),
+            )
         self._status("填充完成", "招呼语已填入输入框，尚未发送")
 
         if not send:
@@ -1646,12 +1682,16 @@ class BossAutomationRunner:
         self._status("等待发送", "正在确认输入框和发送按钮")
         self._control_point()
         if not self._greeting_in_messages(greeting):
-            send_button = find_send_button(self.browser)
-            self._pause_before("发送招呼语")
-            if send_button is None:
-                self.browser.press_enter(editor)
-            else:
-                self.browser.click(send_button, description="发送招呼语")
+            try:
+                self._click_when_ready(
+                    lambda: find_send_button(self.browser),
+                    "发送招呼语",
+                )
+            except ElementNotFoundError as exc:
+                raise BossAutomationError(
+                    "招呼语已填入并校验，但发送按钮在等待后仍未启用；"
+                    "未执行发送动作，已停止处理该岗位"
+                ) from exc
             try:
                 self._wait(
                     lambda _b: self._greeting_in_messages(greeting),
@@ -1666,34 +1706,110 @@ class BossAutomationRunner:
                 ) from exc
         self._status("发送完成", "招呼语已点击发送")
 
-    def _open_chat_with_quota_notice_retry(self) -> None:
+    def _detail_chat_entry(self, card: JobCard) -> object | None:
+        snapshot = read_job_detail(self.browser)
+        job = snapshot.job_data
+        if not (
+            job.is_boss_job_detail_page
+            and job.job_description.value
+            and _same_job_name(card.job_name, job.job_name.value)
+        ):
+            return None
+        return find_chat_entry(self.browser)
+
+    def _open_chat_with_quota_notice_retry(
+        self, *, expected_card: JobCard | None = None
+    ) -> None:
         """打开沟通页；若命中当日次数提醒，关闭后重放被拦截的原点击。"""
 
+        def chat_is_ready() -> bool:
+            return bool(
+                expected_card is not None
+                and "chat" in self.browser.current_url
+                and find_greeting_editor(self.browser) is not None
+            )
+
+        if chat_is_ready():
+            return
+
+        def chat_entry():
+            if expected_card is None:
+                return find_chat_entry(self.browser)
+            return self._detail_chat_entry(expected_card)
+
+        recovered_detail = False
+        retry_reason: str | None = None
+
         for attempt in range(2):
-            description = (
-                "点击“立即沟通”"
-                if attempt == 0
-                else "关闭沟通提醒后重新点击“立即沟通”"
-            )
-            self._click_when_ready(
-                lambda: find_chat_entry(self.browser),
-                description,
-            )
+            # 额度弹窗关闭后的自动跳转可能刚好发生在上一轮有界等待之后、
+            # 下一轮重定位之前；此时直接继续输入，不能再去详情页找旧按钮。
+            if chat_is_ready():
+                return
+            if attempt == 0:
+                description = "点击“立即沟通”"
+            elif retry_reason == "stalled_transition":
+                description = "首次点击未切换后重新点击沟通入口"
+            else:
+                description = "关闭沟通提醒后重新点击“立即沟通”"
+            try:
+                self._click_when_ready(chat_entry, description)
+            except ElementNotFoundError:
+                if chat_is_ready():
+                    return
+                if expected_card is None or recovered_detail or attempt > 0:
+                    raise
+                # 模型审核期间推荐列表可能异步重绘右侧面板。重新按岗位稳定身份
+                # 选择一次并重新核对原始详情，绝不在身份不明的详情上点击沟通。
+                recovered_detail = True
+                self.output(
+                    f"[提示] 岗位详情在审核期间已变化，正在重新定位：{expected_card.job_name}"
+                )
+                self._wait(
+                    lambda _b: select_job_card_inline(self.browser, expected_card),
+                    f"重新定位岗位“{expected_card.job_name}”",
+                )
+                self._sleep(1.0)
+                self._click_when_ready(
+                    chat_entry,
+                    f"重新定位后{description}",
+                )
             self._sleep(1.0)
             if self.browser.driver and len(self.browser.driver.window_handles) > 1:
                 self._pause_before("切换到沟通页面")
                 self.browser.consolidate_windows()
 
-            state = self._wait(
-                lambda _b: (
-                    "quota_notice"
-                    if read_communication_quota_notice(self.browser) is not None
-                    else "editor"
-                    if find_greeting_editor(self.browser) is not None
-                    else None
-                ),
-                "沟通页面或当日沟通次数提醒",
-            )
+            try:
+                state = self._wait(
+                    lambda _b: (
+                        "quota_notice"
+                        if read_communication_quota_notice(self.browser) is not None
+                        else "editor"
+                        if find_greeting_editor(self.browser) is not None
+                        else None
+                    ),
+                    "沟通页面或当日沟通次数提醒",
+                )
+            except ElementNotFoundError as exc:
+                if chat_is_ready():
+                    return
+                # 旧实现把这里的“点击后未切换”也包装成“详情按钮未出现”，
+                # 因而日志无法区分按钮缺失和点击被页面吞掉。若仍明确停留在同一
+                # 岗位详情且入口仍可见，可安全重放一次；自定义招呼语尚未发送。
+                if (
+                    attempt == 0
+                    and expected_card is not None
+                    and self._detail_chat_entry(expected_card) is not None
+                ):
+                    retry_reason = "stalled_transition"
+                    self.output(
+                        "[提示] 已点击沟通入口但页面未切换，仍停留在同一岗位详情；"
+                        "正在安全重试一次"
+                    )
+                    continue
+                raise BossAutomationError(
+                    "已点击一次岗位沟通入口，但等待后仍未进入聊天页，也未出现"
+                    "可识别的沟通次数提醒；未填入或发送招呼语"
+                ) from exc
             if state == "editor":
                 return
             if self._dismiss_communication_quota_notice_if_present():
@@ -1709,10 +1825,11 @@ class BossAutomationRunner:
                     return
                 except ElementNotFoundError:
                     pass
+                retry_reason = "quota_notice"
                 continue
 
         raise BossAutomationError(
-            "已关闭当日沟通次数提醒，但重新点击“立即沟通”后仍未进入沟通页面"
+            "重新点击岗位沟通入口后仍未进入沟通页面；未填入或发送招呼语"
         )
 
     def _dismiss_communication_quota_notice_if_present(self) -> bool:
@@ -2325,11 +2442,19 @@ class BossAutomationRunner:
                             if self.config.dry_run:
                                 delivery_status = "演练未发送"
                             elif self.config.fill_only:
-                                self._fill_or_send_greeting(greeting, send=False)
+                                self._fill_or_send_greeting(
+                                    greeting,
+                                    send=False,
+                                    expected_card=card,
+                                )
                                 delivery_status = "已填充未发送"
                             else:
                                 sending_started = True
-                                self._fill_or_send_greeting(greeting, send=True)
+                                self._fill_or_send_greeting(
+                                    greeting,
+                                    send=True,
+                                    expected_card=card,
+                                )
                                 stats.sent += 1
                                 delivery_status = "发送成功"
                                 sent_successfully = True
