@@ -1186,26 +1186,36 @@ class BossControlPanel(tk.Tk):
             control.wait_if_paused()
             mode = str(settings["mode"])
             review_mode = str(settings["review_mode"])
-            public_settings = {
-                "excluded_companies": list(policy.excluded_companies),
-                "allowed_job_keywords": list(policy.allowed_job_keywords),
-                "excluded_job_directions": list(policy.excluded_job_directions),
-                "allowed_locations": list(policy.allowed_locations),
-                "minimum_score": policy.minimum_score,
-                "salary_min_k": policy.salary_min_k,
-                "salary_max_k": policy.salary_max_k,
-                "minimum_company_size": policy.minimum_company_size,
-                "selected_expectation": (
-                    asdict(policy.selected_expectation)
-                    if policy.selected_expectation is not None
-                    else AVERAGE_EXPECTATION_OPTION
-                ),
-                "action_delay_range_seconds": [
-                    AutomationConfig.action_delay_min_seconds,
-                    AutomationConfig.action_delay_max_seconds,
-                ],
-                "review_mode": review_mode,
-            }
+            def build_public_settings(
+                current_policy: AutomationPolicy,
+                current_review_mode: str,
+            ) -> dict[str, object]:
+                return {
+                    "excluded_companies": list(current_policy.excluded_companies),
+                    "allowed_job_keywords": list(current_policy.allowed_job_keywords),
+                    "excluded_job_directions": list(
+                        current_policy.excluded_job_directions
+                    ),
+                    "allowed_locations": list(current_policy.allowed_locations),
+                    "minimum_score": current_policy.minimum_score,
+                    "weekend_rest": current_policy.weekend_rest,
+                    "experience_requirement": current_policy.experience_requirement,
+                    "salary_min_k": current_policy.salary_min_k,
+                    "salary_max_k": current_policy.salary_max_k,
+                    "minimum_company_size": current_policy.minimum_company_size,
+                    "selected_expectation": (
+                        asdict(current_policy.selected_expectation)
+                        if current_policy.selected_expectation is not None
+                        else AVERAGE_EXPECTATION_OPTION
+                    ),
+                    "action_delay_range_seconds": [
+                        AutomationConfig.action_delay_min_seconds,
+                        AutomationConfig.action_delay_max_seconds,
+                    ],
+                    "review_mode": current_review_mode,
+                }
+
+            public_settings = build_public_settings(policy, review_mode)
             run_id = mysql_store.start_run(mode, policy.target_companies, public_settings)
 
             resume_result = process_inbox_resume("resume_inbox", "data/resume")
@@ -1273,6 +1283,7 @@ class BossControlPanel(tk.Tk):
                 """
 
                 nonlocal mysql_store, run_id, mode, review_mode, mysql_config, policy
+                nonlocal public_settings
 
                 new_policy = updated["policy"]
                 assert isinstance(new_policy, AutomationPolicy)
@@ -1283,9 +1294,9 @@ class BossControlPanel(tk.Tk):
                 changed: list[str] = []
 
                 if new_policy != policy:
-                    runner.policy = new_policy
+                    runner.apply_runtime_policy(new_policy)
                     policy = new_policy
-                    changed.append("筛选条件")
+                    changed.append("运行条件")
                 if new_mode != mode:
                     runner.config = replace(
                         runner.config,
@@ -1293,6 +1304,7 @@ class BossControlPanel(tk.Tk):
                         max_jobs=max(20, new_policy.target_companies * 10),
                     )
                     mode = new_mode
+                    runner.mark_runtime_conditions_changed()
                     changed.append(f"运行模式→{new_mode}")
                 elif new_policy.target_companies != runner.config.max_jobs // 10:
                     runner.config = replace(
@@ -1302,7 +1314,9 @@ class BossControlPanel(tk.Tk):
                 if new_review_mode != review_mode:
                     runner.review_provider = build_review_provider(new_review_mode)
                     review_mode = new_review_mode
+                    runner.mark_runtime_conditions_changed()
                     changed.append(f"审核方式→{new_review_mode}")
+                public_settings = build_public_settings(policy, review_mode)
                 if new_mysql != mysql_config:
                     # 换库意味着换一条运行记录：先把旧库这条运行收尾，再在新库开一条。
                     new_store = AutomationMySqlStore(new_mysql)
@@ -1319,6 +1333,18 @@ class BossControlPanel(tk.Tk):
                     run_id = new_run_id
                     mysql_config = new_mysql
                     changed.append(f"数据库→{new_mysql.database}")
+                elif mysql_store is not None and run_id is not None and changed:
+                    try:
+                        mysql_store.update_run_settings(
+                            run_id,
+                            mode,
+                            policy.target_companies,
+                            public_settings,
+                        )
+                    except MySqlStoreError as exc:
+                        self.events.put(
+                            ("log", f"[警告] MySQL运行条件同步失败：{exc}")
+                        )
 
                 if changed:
                     self.events.put(

@@ -112,8 +112,11 @@ class AutomationControl:
                 should_notify = self._pause_notified
                 if should_notify:
                     self._pause_notified = False
-                self._pause_pending = False
                 on_resume = self._on_resume
+                # 初始化阶段还没有注册 runner 回调时，不能消费 sticky 暂停标记；
+                # 否则 GUI 已提交的新设置会永久留在 pending 中却再也没人应用。
+                if should_notify and on_resume:
+                    self._pause_pending = False
             if should_notify and on_resume:
                 on_resume()
             # 恢复回调可能因页面恢复失败再次暂停，不能放行一次错误页面操作。
@@ -129,8 +132,8 @@ class AutomationControl:
 
         with self._lock:
             pending = self._pause_pending
-            if pending:
-                self._pause_pending = False
             apply_settings = self._apply_settings
+            if pending and apply_settings:
+                self._pause_pending = False
         if pending and apply_settings:
             apply_settings()

@@ -19,6 +19,7 @@ from boss_assistant.automation.api_provider import (
     ApiProviderConfig,
     OpenAICompatibleReviewProvider,
 )
+from boss_assistant.automation.control import AutomationControl
 from boss_assistant.automation.models import (
     AutomationConfig,
     AutomationPolicy,
@@ -57,6 +58,8 @@ from boss_assistant.automation.runner import (
     BossAutomationError,
     BossAutomationRunner,
     DailyCommunicationLimitReachedError,
+    RuntimeConditionsChangedError,
+    UpdatedTargetReachedError,
     allocate_expectation_quotas,
     find_recent_successful_application,
     load_recent_successful_applications,
@@ -3331,6 +3334,130 @@ def test_average_times_keeps_all_job_intents_for_distribution() -> None:
 def test_single_expectation_receives_full_target_without_distribution() -> None:
     intents = JobIntentData((JobExpectation("广州", "Python", None, ()),))
     assert allocate_expectation_quotas(intents, 50) == (50,)
+
+
+def test_pause_target_increase_recalculates_single_expectation_quota() -> None:
+    initial = AutomationPolicy(
+        excluded_companies=(),
+        allowed_job_keywords=("Python",),
+        allowed_locations=("广州",),
+        target_companies=5,
+    )
+    runner = BossAutomationRunner(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+        policy=initial,
+        stats=AutomationStats(matched=5),
+    )
+    runner._job_intents = JobIntentData(  # noqa: SLF001
+        (JobExpectation("广州", "Python", None, ()),)
+    )
+    runner._expectation_quotas = (5,)  # noqa: SLF001
+    runner._expectation_completed = [5]  # noqa: SLF001
+    runner._selected_expectation_index = 0  # noqa: SLF001
+
+    runner.apply_runtime_policy(
+        AutomationPolicy(
+            excluded_companies=("测试公司",),
+            allowed_job_keywords=("Python",),
+            allowed_locations=("广州",),
+            target_companies=7,
+        )
+    )
+
+    assert runner.policy.target_companies == 7
+    assert runner.policy.excluded_companies == ("测试公司",)
+    assert runner._expectation_quotas == (7,)  # noqa: SLF001
+    assert runner._selected_expectation_quota == 7  # noqa: SLF001
+    assert not runner._updated_target_reached  # noqa: SLF001
+
+
+def test_pause_settings_submitted_during_initialization_are_applied_later() -> None:
+    control = AutomationControl()
+    updated = {"target_companies": 7}
+
+    assert control.pause()
+    control.set_pending_settings(updated)
+    assert control.resume()
+    control.wait_if_paused()
+
+    applied: list[dict[str, object] | None] = []
+    control.set_pause_callbacks(
+        apply_settings=lambda: applied.append(control.take_pending_settings())
+    )
+    control.wait_if_paused()
+
+    assert applied == [updated]
+
+
+def test_pause_filter_change_invalidates_in_progress_job_decision() -> None:
+    runner = BossAutomationRunner(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+        policy=AutomationPolicy((), ("Python",), ("广州",), 10),
+    )
+    runner._current_job = "测试公司 / Python开发"  # noqa: SLF001
+
+    runner.apply_runtime_policy(
+        AutomationPolicy(("测试公司",), ("Python",), ("广州",), 10)
+    )
+
+    with pytest.raises(RuntimeConditionsChangedError, match="运行条件已修改"):
+        runner._control_point()  # noqa: SLF001
+
+
+def test_pause_target_decrease_to_completed_count_stops_before_next_action() -> None:
+    runner = BossAutomationRunner(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+        policy=AutomationPolicy((), ("Python",), ("广州",), 10),
+        stats=AutomationStats(matched=5),
+    )
+    runner._job_intents = JobIntentData(  # noqa: SLF001
+        (JobExpectation("广州", "Python", None, ()),)
+    )
+    runner._expectation_quotas = (10,)  # noqa: SLF001
+    runner._expectation_completed = [5]  # noqa: SLF001
+    runner._selected_expectation_index = 0  # noqa: SLF001
+
+    runner.apply_runtime_policy(
+        AutomationPolicy((), ("Python",), ("广州",), 5)
+    )
+
+    assert runner._expectation_quotas == (5,)  # noqa: SLF001
+    with pytest.raises(UpdatedTargetReachedError, match="已完成 5 家"):
+        runner._control_point()  # noqa: SLF001
+
+
+def test_pause_target_change_distributes_only_remaining_quota() -> None:
+    intents = JobIntentData(
+        (
+            JobExpectation("深圳", "C/C++", None, ()),
+            JobExpectation("广州", "Golang", None, ()),
+            JobExpectation("广州", "Python", None, ()),
+        )
+    )
+    runner = BossAutomationRunner(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+        policy=AutomationPolicy((), ("开发",), ("深圳", "广州"), 10),
+        stats=AutomationStats(matched=5),
+    )
+    runner._job_intents = intents  # noqa: SLF001
+    runner._expectation_quotas = (4, 3, 3)  # noqa: SLF001
+    runner._expectation_completed = [4, 1, 0]  # noqa: SLF001
+    runner._selected_expectation_index = 1  # noqa: SLF001
+
+    runner.apply_runtime_policy(
+        AutomationPolicy((), ("开发",), ("深圳", "广州"), 20)
+    )
+
+    assert runner._expectation_quotas == (4, 9, 7)  # noqa: SLF001
+    assert sum(runner._expectation_quotas) == 20  # noqa: SLF001
 
 
 def test_selected_expectation_replaces_even_distribution_with_single_intent() -> None:

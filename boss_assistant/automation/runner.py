@@ -187,6 +187,14 @@ class DailyCommunicationLimitReachedError(RuntimeError):
         super().__init__(DAILY_COMMUNICATION_LIMIT_REASON)
 
 
+class UpdatedTargetReachedError(RuntimeError):
+    """暂停后下调目标，且当前累计进度已经达到新目标。"""
+
+
+class RuntimeConditionsChangedError(RuntimeError):
+    """当前岗位处理期间条件改变，必须回到列表后按新条件重新判断。"""
+
+
 def format_processing_duration(seconds: float) -> str:
     """把单个岗位的处理耗时格式化成 “2min32sec”。"""
 
@@ -480,7 +488,11 @@ class BossAutomationRunner:
         self._selected_expectation_index: int | None = None
         self._selected_expectation_quota: int | None = None
         self._expectation_quotas: tuple[int, ...] = ()
+        self._expectation_completed: list[int] = []
         self._job_intents = JobIntentData(())
+        self._updated_target_reached = False
+        self._runtime_conditions_changed = False
+        self._current_send_started = False
         # None 表示按目标正常完成；达到 Boss 当日硬上限时写入固定、可展示的
         # 正常结束原因，并由主循环立即停止。
         self.completion_reason: str | None = None
@@ -495,6 +507,15 @@ class BossAutomationRunner:
     def _control_point(self) -> None:
         if self.control:
             self.control.wait_if_paused()
+        if self._updated_target_reached and not self._current_send_started:
+            self._updated_target_reached = False
+            raise UpdatedTargetReachedError(
+                f"已完成 {self.stats.matched} 家，已达到暂停后修改的新目标 "
+                f"{self.policy.target_companies if self.policy else 0} 家"
+            )
+        if self._runtime_conditions_changed:
+            self._runtime_conditions_changed = False
+            raise RuntimeConditionsChangedError("运行条件已修改")
 
     def _sleep(self, seconds: float) -> None:
         if not self.control:
@@ -569,6 +590,7 @@ class BossAutomationRunner:
         description: str,
         *,
         timeout: float | None = None,
+        before_click: Callable[[], None] | None = None,
     ):
         """先等待再按稳定语义重新定位，避免随机延迟期间旧 DOM 标记失效。"""
 
@@ -578,6 +600,8 @@ class BossAutomationRunner:
             f"{description}对应的可见元素",
             timeout=timeout,
         )
+        if before_click:
+            before_click()
         self.browser.click(element, description=description)
         return element
 
@@ -607,6 +631,73 @@ class BossAutomationRunner:
         return extract_job_cards(self.browser)
 
     # ------------------------------------------------------------------ 暂停/继续
+    def apply_runtime_policy(self, policy: AutomationPolicy) -> None:
+        """应用暂停期间修改的运行条件，并同步所有运行期派生状态。
+
+        筛选条件本身由主循环每次读取 ``self.policy``，替换后即可生效；目标公司数
+        还派生出了每条求职期望的配额，因此必须按已经完成的真实进度重新分配剩余额度。
+        目标被下调到当前累计数以下时设置硬门禁，由下一个 runner 控制点在任何网页
+        操作前正常结束，避免继续当前岗位后再判断。
+        """
+
+        previous = self.policy
+        if (
+            previous is not None
+            and previous.selected_expectation != policy.selected_expectation
+        ):
+            raise BossAutomationError("本轮求职意向不能在暂停期间修改")
+
+        self.policy = policy
+        if previous != policy:
+            self.mark_runtime_conditions_changed()
+        target_changed = (
+            previous is not None
+            and previous.target_companies != policy.target_companies
+        )
+        if target_changed and self._job_intents.expectations:
+            self._reallocate_remaining_expectation_quotas(policy.target_companies)
+        if target_changed and self.stats.matched >= policy.target_companies:
+            self._updated_target_reached = True
+
+    def mark_runtime_conditions_changed(self) -> None:
+        """使正在处理但尚未完成的岗位失效，避免沿用暂停前的审核或发送决定。"""
+
+        if self._current_job is not None and not self._current_send_started:
+            self._runtime_conditions_changed = True
+
+    def _reallocate_remaining_expectation_quotas(
+        self,
+        target_companies: int,
+    ) -> None:
+        """从当前求职期望开始，把新目标的剩余数量重新分配到尚可执行的期望。"""
+
+        count = len(self._job_intents.expectations)
+        if count == 0:
+            self._expectation_quotas = ()
+            self._selected_expectation_quota = None
+            return
+
+        completed = list(self._expectation_completed[:count])
+        completed.extend(0 for _ in range(count - len(completed)))
+        start = self._selected_expectation_index or 0
+        start = min(max(start, 0), count - 1)
+        remaining = max(0, target_companies - sum(completed))
+        active_count = count - start
+        base, remainder = divmod(remaining, active_count)
+        quotas = completed[:]
+        for offset, index in enumerate(range(start, count)):
+            quotas[index] = completed[index] + base + (1 if offset < remainder else 0)
+        self._expectation_quotas = tuple(quotas)
+        self._selected_expectation_quota = self._expectation_quotas[start]
+        self.output(
+            "暂停后已按新目标重算剩余配额："
+            + "；".join(
+                f"{item.city or '不限城市'}/{item.role}="
+                f"{completed[index]}/{self._expectation_quotas[index]}家"
+                for index, item in enumerate(self._job_intents.expectations)
+            )
+        )
+
     def _on_paused(self) -> None:
         try:
             self._breakpoint_page = self._current_page()
@@ -1682,10 +1773,16 @@ class BossAutomationRunner:
         self._status("等待发送", "正在确认输入框和发送按钮")
         self._control_point()
         if not self._greeting_in_messages(greeting):
+            def mark_send_started() -> None:
+                # 从这里开始点击可能已经到达 Boss；暂停修改只能影响下一岗位，
+                # 不能中断确认并把一次真实发送误当成未发送。
+                self._current_send_started = True
+
             try:
                 self._click_when_ready(
                     lambda: find_send_button(self.browser),
                     "发送招呼语",
+                    before_click=mark_send_started,
                 )
             except ElementNotFoundError as exc:
                 raise BossAutomationError(
@@ -1935,6 +2032,7 @@ class BossAutomationRunner:
             ),
             "intents": asdict(intents),
             "expectation_quotas": list(self._expectation_quotas),
+            "expectation_completed": list(self._expectation_completed),
             "completion_reason": self.completion_reason,
             "completion_warning": self.completion_warning,
             "stats": {
@@ -1983,6 +2081,7 @@ class BossAutomationRunner:
             "policy": asdict(self.policy) if self.policy is not None else None,
             "intents": asdict(intents),
             "expectation_quotas": list(self._expectation_quotas),
+            "expectation_completed": list(self._expectation_completed),
             "selected_expectation": {
                 "index": self._selected_expectation_index,
                 "city": self._selected_city,
@@ -2068,7 +2167,6 @@ class BossAutomationRunner:
                 recent_successful_applications[key] = sent_at
         stagnant_scrolls = 0
         expectation_index = 0
-        expectation_completed = 0
 
         def write_checkpoint(status: str) -> None:
             path = self._save_checkpoint(
@@ -2103,6 +2201,7 @@ class BossAutomationRunner:
                 intents,
                 self.policy.target_companies,
             )
+            self._expectation_completed = [0 for _ in intents.expectations]
             visited_by_expectation = [
                 set() for _expectation in intents.expectations
             ]
@@ -2146,9 +2245,10 @@ class BossAutomationRunner:
                 )
 
             def advance_expectation(*, exhausted: bool = False) -> bool:
-                nonlocal expectation_index, expectation_completed, stagnant_scrolls
+                nonlocal expectation_index, stagnant_scrolls
                 current = intents.expectations[expectation_index]
                 quota = self._expectation_quotas[expectation_index]
+                expectation_completed = self._expectation_completed[expectation_index]
                 if exhausted and expectation_completed < quota:
                     self.output(
                         f"第 {expectation_index + 1} 条求职期望已无新岗位："
@@ -2161,7 +2261,6 @@ class BossAutomationRunner:
                         f"{expectation_completed}/{quota} 家"
                     )
                 expectation_index += 1
-                expectation_completed = 0
                 stagnant_scrolls = 0
                 while (
                     expectation_index < len(intents.expectations)
@@ -2319,6 +2418,7 @@ class BossAutomationRunner:
 
                     counted = False
                     sending_started = False
+                    self._current_send_started = False
                     application_completed = False
                     sent_successfully = False
                     try:
@@ -2484,7 +2584,7 @@ class BossAutomationRunner:
                                         (card.company_name, record_job_name)
                                     ] = datetime.now().astimezone()
                             stats.matched += 1
-                            expectation_completed += 1
+                            self._expectation_completed[expectation_index] += 1
                             application_completed = delivery_status == "发送成功"
                             if company_key:
                                 selected_companies.add(company_key)
@@ -2514,6 +2614,16 @@ class BossAutomationRunner:
                                 "message_sent": delivery_status == "发送成功",
                             },
                         )
+                    except RuntimeConditionsChangedError:
+                        if counted:
+                            stats.inspected = max(0, stats.inspected - 1)
+                        current_visited.discard(card.fingerprint)
+                        visited.discard(f"{expectation_index}:{card.fingerprint}")
+                        self.output(
+                            "暂停期间运行条件已修改：当前未完成岗位不再沿用旧判断，"
+                            "返回列表后将按新条件重新读取"
+                        )
+                        continue
                     except (AutomationStopRequested, DailyCommunicationLimitReachedError):
                         raise
                     except (
@@ -2555,13 +2665,17 @@ class BossAutomationRunner:
                             },
                         )
                     finally:
-                        if (
-                            self.completion_reason is None
-                            and not (self.control and self.control.stop_requested)
-                        ):
-                            self._return_to_recommendations(
-                                immediate=sent_successfully
-                            )
+                        try:
+                            if (
+                                self.completion_reason is None
+                                and not (self.control and self.control.stop_requested)
+                            ):
+                                self._return_to_recommendations(
+                                    immediate=sent_successfully
+                                )
+                        finally:
+                            self._current_job = None
+                            self._current_send_started = False
 
                     entered_messages = (
                         self._inspect_messages_between_jobs(stats)
@@ -2569,7 +2683,7 @@ class BossAutomationRunner:
                         else False
                     )
                     quota = self._expectation_quotas[expectation_index]
-                    if expectation_completed >= quota:
+                    if self._expectation_completed[expectation_index] >= quota:
                         expectation_switched = advance_expectation()
                         break
                     if entered_messages:
@@ -2601,6 +2715,13 @@ class BossAutomationRunner:
             # 收尾时再次点击“职位”和求职意向，造成无意义的第三次页面闪动。
             if self._current_page() != "recommendations":
                 self._return_to_recommendations()
+            log_path = self._save_run_log(stats, intents)
+            write_checkpoint("completed")
+            return stats, log_path
+        except UpdatedTargetReachedError as exc:
+            self._current_job = None
+            self._status("运行结束", str(exc))
+            self.output(f"运行条件已更新：{exc}，本次任务直接结束")
             log_path = self._save_run_log(stats, intents)
             write_checkpoint("completed")
             return stats, log_path

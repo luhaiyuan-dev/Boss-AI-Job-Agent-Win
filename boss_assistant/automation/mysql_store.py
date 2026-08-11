@@ -239,6 +239,38 @@ class AutomationMySqlStore:
             cursor.close()
             connection.close()
 
+    def update_run_settings(
+        self,
+        run_id: int,
+        mode: str,
+        target_companies: int,
+        settings: dict[str, object],
+    ) -> None:
+        """暂停修改条件后同步当前运行记录，避免数据库仍保留启动时快照。"""
+
+        connection = self._connect(with_database=True)
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE automation_runs
+                SET mode = %s, target_companies = %s, settings_json = %s
+                WHERE id = %s AND status = 'running'
+                """,
+                (
+                    mode,
+                    target_companies,
+                    json.dumps(settings, ensure_ascii=False),
+                    run_id,
+                ),
+            )
+            connection.commit()
+        except Exception as exc:
+            raise MySqlStoreError(f"MySQL 同步运行条件失败：{exc}") from exc
+        finally:
+            cursor.close()
+            connection.close()
+
     def save_result(self, run_id: int, result: dict[str, object]) -> None:
         connection = self._connect(with_database=True)
         cursor = connection.cursor()
