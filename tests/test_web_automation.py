@@ -68,8 +68,8 @@ from boss_assistant.automation.runner import (
 )
 from boss_assistant.browser.driver import (
     BrowserError,
-    EdgeDebugTarget,
     EdgeBrowser,
+    EdgeDebugTarget,
     ElementNotFoundError,
     LoginRequiredError,
     _running_edge_command_lines,
@@ -78,6 +78,13 @@ from boss_assistant.gui.app import (
     BossControlPanel,
     format_run_completion,
     result_view_is_at_bottom,
+)
+from boss_assistant.gui.result_filter import (
+    DELIVERY_STATUS_OPTIONS,
+    ResultFilter,
+    ResultViewRecord,
+    filter_result_records,
+    job_title_relevance,
 )
 from boss_assistant.page import PageReadError, build_job_page_data
 from boss_assistant.web.page_reader import align_detail_identity, read_job_detail
@@ -2354,6 +2361,143 @@ def test_result_view_only_follows_latest_when_at_bottom() -> None:
     assert result_view_is_at_bottom((0.9999995, 0.9999995)) is True
 
 
+def test_job_result_filter_prioritizes_full_and_more_complete_title_matches() -> None:
+    titles = (
+        "工程师",
+        "AI应用开发工程师",
+        "无关销售",
+        "高级AI应用开发工程师",
+        "AI应用开发",
+        "AI开发工程师",
+        "AI应用开发工程师",
+        "AI",
+    )
+    records = [
+        ResultViewRecord(
+            sequence=str(index + 1),
+            ordinal=index,
+            record={"job_name": title, "location": "广州", "delivery_status": "未投递"},
+        )
+        for index, title in enumerate(titles)
+    ]
+
+    filtered = filter_result_records(
+        records,
+        ResultFilter(job_query="AI应用开发工程师"),
+    )
+
+    assert [row.record["job_name"] for row in filtered] == [
+        "AI应用开发工程师",
+        "AI应用开发工程师",
+        "高级AI应用开发工程师",
+        "AI开发工程师",
+        "AI应用开发",
+        "工程师",
+        "AI",
+    ]
+    assert [row.sequence for row in filtered[:2]] == ["2", "7"]
+    assert job_title_relevance("ai 应用", "AI应用平台开发") is not None
+    assert job_title_relevance("AI应用开发工程师", "无关销售") is None
+
+
+def test_delivery_status_filter_options_exclude_dry_run_status() -> None:
+    assert DELIVERY_STATUS_OPTIONS == (
+        "全部",
+        "未投递",
+        "已填充未发送",
+        "发送成功",
+        "处理失败",
+        "发送失败",
+    )
+
+
+def test_job_result_filter_fields_are_combined_with_and_relation() -> None:
+    records = [
+        ResultViewRecord(
+            sequence="1",
+            ordinal=0,
+            record={
+                "job_name": "AI应用工程师",
+                "location": "广州·天河区",
+                "delivery_status": "未投递",
+            },
+        ),
+        ResultViewRecord(
+            sequence="2",
+            ordinal=1,
+            record={
+                "job_name": "AI应用工程师",
+                "location": "深圳·南山区",
+                "delivery_status": "未投递",
+            },
+        ),
+        ResultViewRecord(
+            sequence="3",
+            ordinal=2,
+            record={
+                "job_name": "AI应用工程师",
+                "location": "广州",
+                "delivery_status": "发送成功",
+            },
+        ),
+        ResultViewRecord(
+            sequence="4",
+            ordinal=3,
+            record={
+                "job_name": "Java开发工程师",
+                "location": "广州",
+                "delivery_status": "未投递",
+            },
+        ),
+    ]
+
+    filtered = filter_result_records(
+        records,
+        ResultFilter(
+            job_query="AI应用",
+            location="广州",
+            delivery_status="未投递",
+        ),
+    )
+
+    assert [row.sequence for row in filtered] == ["1"]
+
+
+def test_result_location_selection_changes_only_when_filter_is_applied() -> None:
+    class _Var:
+        def __init__(self, value: str) -> None:
+            self.value = value
+
+        def get(self) -> str:
+            return self.value
+
+        def set(self, value: str) -> None:
+            self.value = value
+
+    class _Combo:
+        def __init__(self) -> None:
+            self.values: tuple[str, ...] = ()
+
+        def configure(self, *, values) -> None:
+            self.values = values
+
+    panel = SimpleNamespace(
+        locations_var=_Var("深圳"),
+        result_location_filter_var=_Var("广州"),
+        result_location_filter_combo=_Combo(),
+    )
+
+    BossControlPanel._refresh_result_location_options(panel)  # type: ignore[arg-type]
+    assert panel.result_location_filter_combo.values == ("全部", "深圳")
+    assert panel.result_location_filter_var.get() == "广州"
+
+    BossControlPanel._refresh_result_location_options(  # type: ignore[arg-type]
+        panel,
+        reset_invalid=True,
+    )
+    assert panel.result_location_filter_var.get() == "全部"
+
+
 def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     class _Tree:
         def __init__(self) -> None:
@@ -2373,9 +2517,18 @@ def test_gui_new_result_does_not_interrupt_manual_history_scroll() -> None:
     panel = SimpleNamespace(
         tree=tree,
         _row_records={},
+        _result_records=[],
+        _active_result_filter=ResultFilter(),
         _follow_latest_results=False,
         _row_counts=lambda: (0, 0),
         _refresh_progress_from_table=lambda: None,
+    )
+    panel._insert_result_record = lambda view_record, index="end": (  # type: ignore[attr-defined]
+        BossControlPanel._insert_result_record(  # type: ignore[arg-type]
+            panel,
+            view_record,
+            index=index,
+        )
     )
     tree.see = lambda row: tree.seen.append(row)  # type: ignore[attr-defined]
     result = {
@@ -2416,9 +2569,18 @@ def test_gui_follow_mode_survives_stale_yview_during_rapid_results() -> None:
     panel = SimpleNamespace(
         tree=tree,
         _row_records={},
+        _result_records=[],
+        _active_result_filter=ResultFilter(),
         _follow_latest_results=True,
         _row_counts=lambda: (len(tree.rows), 0),
         _refresh_progress_from_table=lambda: None,
+    )
+    panel._insert_result_record = lambda view_record, index="end": (  # type: ignore[attr-defined]
+        BossControlPanel._insert_result_record(  # type: ignore[arg-type]
+            panel,
+            view_record,
+            index=index,
+        )
     )
     result = {
         "created_at": "2026-08-11T12:00:00+08:00",
@@ -2432,6 +2594,63 @@ def test_gui_follow_mode_survives_stale_yview_during_rapid_results() -> None:
 
     assert tree.seen == [f"row-{index}" for index in range(1, 7)]
     assert panel._follow_latest_results is True
+
+
+def test_gui_running_results_dynamically_respect_active_filter_and_ranking() -> None:
+    class _Tree:
+        def __init__(self) -> None:
+            self.rows: list[str] = []
+            self.values: dict[str, tuple[object, ...]] = {}
+
+        def insert(self, _parent, index, *, values, tags):
+            del tags
+            row = f"row-{len(self.values) + 1}"
+            if index == "end":
+                self.rows.append(row)
+            else:
+                self.rows.insert(int(index), row)
+            self.values[row] = values
+            return row
+
+        def see(self, _row: str) -> None:
+            raise AssertionError("手动查看筛选结果时不应跳转视口")
+
+    tree = _Tree()
+    panel = SimpleNamespace(
+        tree=tree,
+        _row_records={},
+        _result_records=[],
+        _active_result_filter=ResultFilter(job_query="AI应用开发工程师"),
+        _follow_latest_results=False,
+        _refresh_progress_from_table=lambda: None,
+    )
+    panel._row_counts = lambda: BossControlPanel._row_counts(panel)  # type: ignore[attr-defined,arg-type]
+    panel._insert_result_record = lambda view_record, index="end": (  # type: ignore[attr-defined]
+        BossControlPanel._insert_result_record(  # type: ignore[arg-type]
+            panel,
+            view_record,
+            index=index,
+        )
+    )
+
+    for title in ("无关销售", "工程师", "AI应用开发工程师"):
+        BossControlPanel._add_result(  # type: ignore[arg-type]
+            panel,
+            {
+                "created_at": "2026-08-12T12:00:00+08:00",
+                "company_name": "示例科技",
+                "job_name": title,
+                "location": "广州",
+                "delivery_status": "未投递",
+            },
+        )
+
+    assert len(panel._result_records) == 3
+    assert [tree.values[row][4] for row in tree.rows] == [
+        "AI应用开发工程师",
+        "工程师",
+    ]
+    assert [tree.values[row][0] for row in tree.rows] == [3, 2]
 
 
 def test_gui_scrollbar_restores_follow_mode_at_bottom() -> None:

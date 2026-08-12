@@ -29,14 +29,14 @@ from boss_assistant.automation import (
     ReviewError,
     parse_terms,
 )
+from boss_assistant.automation.api_provider import (
+    ApiProviderConfig,
+    OpenAICompatibleReviewProvider,
+)
 from boss_assistant.automation.runner import (
     AutomationStoppedError,
     BossAutomationError,
     BossAutomationRunner,
-)
-from boss_assistant.automation.api_provider import (
-    ApiProviderConfig,
-    OpenAICompatibleReviewProvider,
 )
 from boss_assistant.browser import (
     BrowserError,
@@ -44,11 +44,18 @@ from boss_assistant.browser import (
     LoginRequiredError,
 )
 from boss_assistant.browser.driver import GEEK_JOBS_URL
+from boss_assistant.gui.result_filter import (
+    ALL_RESULT_FILTER_OPTION,
+    DELIVERY_STATUS_OPTIONS,
+    ResultFilter,
+    ResultViewRecord,
+    filter_result_records,
+    result_status,
+)
 from boss_assistant.paths import bundled_icon, runtime_root
 from boss_assistant.resume import ResumeInboxError, ResumePdfError, process_inbox_resume
 from boss_assistant.storage import JobStore, JobStoreError
 from boss_assistant.web import parse_job_intents
-
 
 MODE_FILL_ONLY = "仅填充不发送"
 MODE_SEND = "实际发送"
@@ -94,7 +101,6 @@ _CELL_TEXT_PADDING = 12
 _CELL_VIEWER_MIN_WIDTH = 380
 # “投递情况”列的固定宽度：最长文案“已回复，简历此前已发送”实测 132px，留出内边距。
 _RESULT_COLUMN_WIDTH = 148
-
 
 _GUI_MANUAL_FIELD_DEFAULTS = {
     "不打招呼公司": "无",
@@ -315,6 +321,10 @@ class BossControlPanel(tk.Tk):
         self._close_pending = False
         # 表格里每一行对应的原始结果，供“选中行完整内容”展开全文。
         self._row_records: dict[str, dict[str, object]] = {}
+        # 原始结果与筛选后的 Treeview 严格分离：筛选不会改变累计进度、序号或
+        # MySQL/JSON 记录，新结果则按当前已经点击生效的筛选条件动态加入视图。
+        self._result_records: list[ResultViewRecord] = []
+        self._active_result_filter = ResultFilter()
         # 自动跟随是用户滚动意图，而不是每次插入前的一次 yview 快照。Tk 在连续
         # insert/see 时可能尚未完成滚动范围重算，临时返回“未到底部”；若直接拿这个
         # 值做下一条记录的开关，跟随几条后就会被错误地永久关闭。
@@ -635,6 +645,47 @@ class BossControlPanel(tk.Tk):
 
         toolbar = ttk.Frame(table_card, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.result_job_filter_var = tk.StringVar()
+        self.result_location_filter_var = tk.StringVar(
+            value=ALL_RESULT_FILTER_OPTION
+        )
+        self.result_status_filter_var = tk.StringVar(
+            value=ALL_RESULT_FILTER_OPTION
+        )
+        ttk.Label(toolbar, text="岗位", style="Field.TLabel").pack(side="left")
+        self.result_job_filter_entry = ttk.Entry(
+            toolbar,
+            textvariable=self.result_job_filter_var,
+            width=24,
+        )
+        self.result_job_filter_entry.pack(side="left", padx=(6, 10))
+        self.result_job_filter_entry.bind(
+            "<Return>", lambda _event: self._apply_result_filter()
+        )
+        ttk.Label(toolbar, text="且  地点", style="Field.TLabel").pack(side="left")
+        self.result_location_filter_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self.result_location_filter_var,
+            values=(ALL_RESULT_FILTER_OPTION,),
+            state="readonly",
+            width=10,
+        )
+        self.result_location_filter_combo.pack(side="left", padx=(6, 10))
+        ttk.Label(toolbar, text="且  投递情况", style="Field.TLabel").pack(side="left")
+        self.result_status_filter_combo = ttk.Combobox(
+            toolbar,
+            textvariable=self.result_status_filter_var,
+            values=DELIVERY_STATUS_OPTIONS,
+            state="readonly",
+            width=14,
+        )
+        self.result_status_filter_combo.pack(side="left", padx=(6, 10))
+        ttk.Button(
+            toolbar,
+            text="筛选",
+            style="Ghost.TButton",
+            command=self._apply_result_filter,
+        ).pack(side="left")
         self.start_button = ttk.Button(toolbar, text="开始", style="Accent.TButton", command=self._start)
         self.start_button.pack(side="right")
         self.stop_button = ttk.Button(
@@ -653,6 +704,8 @@ class BossControlPanel(tk.Tk):
             state="disabled",
         )
         self.pause_button.pack(side="right", padx=(0, 8))
+        self.locations_var.trace_add("write", self._refresh_result_location_options)
+        self._refresh_result_location_options()
 
         columns = (
             "index",
@@ -779,6 +832,53 @@ class BossControlPanel(tk.Tk):
 
         self._hide_cell_viewer()
         self._schedule_result_follow_sync()
+
+    def _refresh_result_location_options(
+        self,
+        *_args: object,
+        reset_invalid: bool = False,
+    ) -> None:
+        """地点选项跟随目标城市；再次点击筛选时才校正已移除的旧选择。"""
+
+        options = (ALL_RESULT_FILTER_OPTION, *parse_terms(self.locations_var.get()))
+        self.result_location_filter_combo.configure(values=options)
+        # 用户暂停后可能正在修改目标城市。此时保留当前地点筛选文字与已经生效
+        # 的条件一致；等用户点击“筛选”时，再把已不属于目标城市的旧值归为“全部”。
+        if reset_invalid and self.result_location_filter_var.get() not in options:
+            self.result_location_filter_var.set(ALL_RESULT_FILTER_OPTION)
+
+    def _apply_result_filter(self) -> None:
+        """点击后固定本次筛选值；后续运行结果继续按这组条件动态刷新。"""
+
+        self._refresh_result_location_options(reset_invalid=True)
+        self._active_result_filter = ResultFilter(
+            job_query=self.result_job_filter_var.get().strip(),
+            location=self.result_location_filter_var.get()
+            or ALL_RESULT_FILTER_OPTION,
+            delivery_status=self.result_status_filter_var.get()
+            or ALL_RESULT_FILTER_OPTION,
+        )
+        self._rebuild_result_view()
+
+    def _rebuild_result_view(self) -> None:
+        self._hide_cell_viewer()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self._row_records.clear()
+        for view_record in filter_result_records(
+            self._result_records,
+            self._active_result_filter,
+        ):
+            self._insert_result_record(view_record)
+        children = self.tree.get_children()
+        if children:
+            # 筛选后的第一行是最高相关度或最早序号，优先让用户看到它。
+            self.tree.yview_moveto(0.0)
+            # 即使 Tk 还没完成滚动范围重算，也不要把刚筛到第一行的视口误判成
+            # “位于底部”后被下一条动态结果拉走；用户滚到底部时会按原逻辑恢复跟随。
+            self._follow_latest_results = False
+        else:
+            self._follow_latest_results = True
 
     def _field(
         self,
@@ -1086,6 +1186,7 @@ class BossControlPanel(tk.Tk):
         for item in self.tree.get_children():
             self.tree.delete(item)
         self._row_records.clear()
+        self._result_records.clear()
         self._follow_latest_results = True
         self._hide_cell_viewer()
         self.status_var.set("初始化")
@@ -1544,25 +1645,58 @@ class BossControlPanel(tk.Tk):
     def _row_counts(self) -> tuple[int, int]:
         """分别统计岗位行与消息行；两者共用一张表但序号各自独立编号。"""
 
-        job_rows = 0
-        chat_rows = 0
-        for row in self.tree.get_children():
-            if "chat_action" in self.tree.item(row, "tags"):
-                chat_rows += 1
-            else:
-                job_rows += 1
+        chat_rows = sum(
+            1
+            for view_record in self._result_records
+            if view_record.record.get("record_type") == "chat_action"
+        )
+        job_rows = len(self._result_records) - chat_rows
         return job_rows, chat_rows
 
     def _add_result(self, result: dict[str, object]) -> None:
-        created = str(result.get("created_at") or "")
-        time_text = created[11:19] if len(created) >= 19 else created
         job_rows, chat_rows = self._row_counts()
         if result.get("record_type") == "chat_action":
             # 消息行用 M1、M2… 独立编号，避免占用岗位序号，让最大岗位序号始终
             # 等于状态区的“已检查”。
-            self._add_chat_action(result, f"M{chat_rows + 1}", time_text)
-            return
-        seq = job_rows + 1
+            sequence = f"M{chat_rows + 1}"
+        else:
+            sequence = str(job_rows + 1)
+        view_record = ResultViewRecord(
+            sequence=sequence,
+            ordinal=len(self._result_records),
+            record=result,
+        )
+        self._result_records.append(view_record)
+        visible = filter_result_records(
+            self._result_records,
+            self._active_result_filter,
+        )
+        if view_record in visible:
+            item = self._insert_result_record(
+                view_record,
+                index=visible.index(view_record),
+            )
+            if self._follow_latest_results:
+                self.tree.see(item)
+        self._refresh_progress_from_table()
+
+    def _insert_result_record(
+        self,
+        view_record: ResultViewRecord,
+        *,
+        index: object = "end",
+    ) -> str:
+        result = view_record.record
+        created = str(result.get("created_at") or "")
+        time_text = created[11:19] if len(created) >= 19 else created
+        if result.get("record_type") == "chat_action":
+            return self._add_chat_action(
+                result,
+                view_record.sequence,
+                time_text,
+                index=index,
+            )
+        seq = int(view_record.sequence)
         status = result.get("delivery_status") or "—"
         if status in {"处理失败", "发送失败"}:
             row_tag = "failed"
@@ -1572,7 +1706,7 @@ class BossControlPanel(tk.Tk):
             row_tag = "even" if seq % 2 == 0 else "odd"
         item = self.tree.insert(
             "",
-            "end",
+            index,
             values=(
                 seq,
                 time_text,
@@ -1589,16 +1723,16 @@ class BossControlPanel(tk.Tk):
             tags=(row_tag, "job"),
         )
         self._row_records[item] = result
-        if self._follow_latest_results:
-            self.tree.see(item)
-        self._refresh_progress_from_table()
+        return item
 
     def _add_chat_action(
         self,
         result: dict[str, object],
         seq: str,
         time_text: str,
-    ) -> None:
+        *,
+        index: object = "end",
+    ) -> str:
         """消息巡检结果复用同一张表，用独立底色与“消息”标记区分投递记录。"""
 
         action = str(result.get("action") or "—")
@@ -1611,7 +1745,7 @@ class BossControlPanel(tk.Tk):
             detail = f"回复“{reply}”；{detail}"
         item = self.tree.insert(
             "",
-            "end",
+            index,
             values=(
                 seq,
                 time_text,
@@ -1628,9 +1762,7 @@ class BossControlPanel(tk.Tk):
             tags=(row_tag, "chat_action"),
         )
         self._row_records[item] = result
-        if self._follow_latest_results:
-            self.tree.see(item)
-        self._refresh_progress_from_table()
+        return item
 
     # ------------------------------------------------------------------
     # 单元格查看条：表格保持定宽硬截断，点击被截断的单元格时在它正下方浮出
@@ -1710,35 +1842,35 @@ class BossControlPanel(tk.Tk):
         self._cell_viewer_cell = (row, column)
 
     def _refresh_progress_from_table(self) -> None:
-        job_rows = [
-            row
-            for row in self.tree.get_children()
-            if "chat_action" not in self.tree.item(row, "tags")
+        job_records = [
+            view_record.record
+            for view_record in self._result_records
+            if view_record.record.get("record_type") != "chat_action"
         ]
-        chat_rows = [
-            row
-            for row in self.tree.get_children()
-            if "chat_action" in self.tree.item(row, "tags")
+        chat_records = [
+            view_record.record
+            for view_record in self._result_records
+            if view_record.record.get("record_type") == "chat_action"
         ]
         selected = sum(
             1
-            for row in job_rows
-            if self.tree.set(row, "result") in {"已填充未发送", "发送成功"}
+            for record in job_records
+            if result_status(record) in {"已填充未发送", "发送成功"}
         )
         failed = sum(
             1
-            for row in self.tree.get_children()
-            if self.tree.set(row, "result") in {"处理失败", "发送失败"}
+            for record in (*job_records, *chat_records)
+            if result_status(record) in {"处理失败", "发送失败"}
         )
         resumes = sum(
             1
-            for row in chat_rows
-            if self.tree.set(row, "result") in {"已回复并发送简历", "已发送简历"}
+            for record in chat_records
+            if result_status(record) in {"已回复并发送简历", "已发送简历"}
         )
         pinned = sum(
-            1 for row in chat_rows if self.tree.set(row, "result") == "已置顶待处理"
+            1 for record in chat_records if result_status(record) == "已置顶待处理"
         )
-        text = f"已检查 {len(job_rows)} · 已选择 {selected} · 失败 {failed}"
+        text = f"已检查 {len(job_records)} · 已选择 {selected} · 失败 {failed}"
         if resumes or pinned:
             text += f" · 已发简历 {resumes} · 已置顶 {pinned}"
         self.progress_var.set(text)

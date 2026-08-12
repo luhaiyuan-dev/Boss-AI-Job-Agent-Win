@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) { throw "字符串加固构建副本创建失败。" }
 & $PythonPath -m compileall -q $StagingRoot
 if ($LASTEXITCODE -ne 0) { throw "加固构建副本编译检查失败。" }
 
-$Version = "0.1.11.0"
+$Version = "0.2.1.0"
 $OfficialIcons = Join-Path $ProjectRoot "assets\icons\official"
 
 function Invoke-NuitkaBuild {
