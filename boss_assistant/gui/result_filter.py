@@ -10,11 +10,14 @@ from difflib import SequenceMatcher
 ALL_RESULT_FILTER_OPTION = "全部"
 DELIVERY_STATUS_OPTIONS = (
     ALL_RESULT_FILTER_OPTION,
-    "未投递",
-    "已填充未发送",
     "发送成功",
+    "已填充未发送",
+    "未投递",
     "处理失败",
     "发送失败",
+    "已置顶待处理",
+    "已发送简历",
+    "HR已拒绝，已忽略",
 )
 
 
@@ -94,6 +97,17 @@ def result_status(record: dict[str, object]) -> str:
     return str(record.get("delivery_status") or "—")
 
 
+def _status_matches(selected: str, record: dict[str, object]) -> bool:
+    """把消息巡检的细分动作归并到用户可筛选的状态。"""
+
+    if selected == "已发送简历" and record.get("record_type") == "chat_action":
+        return record.get("resume_sent") is True or record.get("action") in {
+            "已发送简历",
+            "已回复并发送简历",
+        }
+    return result_status(record) == selected
+
+
 def _result_job_name(record: dict[str, object]) -> object:
     if record.get("record_type") == "chat_action":
         return record.get("position_name")
@@ -132,7 +146,7 @@ def filter_result_records(
             continue
         if (
             result_filter.delivery_status != ALL_RESULT_FILTER_OPTION
-            and result_status(record) != result_filter.delivery_status
+            and not _status_matches(result_filter.delivery_status, record)
         ):
             continue
         matched.append((relevance, view_record))

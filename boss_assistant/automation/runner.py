@@ -1326,7 +1326,7 @@ class BossAutomationRunner:
                 stats,
                 {
                     **record,
-                    "action": "无需处理",
+                    "action": "HR已拒绝，已忽略",
                     "reason": "列表最新消息已明确表示岗位不合适，不回复且不置顶",
                     "reply": None,
                     "resume_sent": False,
@@ -1345,7 +1345,7 @@ class BossAutomationRunner:
                 stats,
                 {
                     **record,
-                    "action": "无需处理",
+                    "action": "HR已拒绝，已忽略",
                     "reason": "HR已明确表示岗位不合适，不回复且不置顶",
                     "reply": None,
                     "resume_sent": False,

@@ -2,7 +2,7 @@
 
 ## 验证基线
 
-- 项目版本：`0.2.1`
+- 项目版本：`0.2.2`
 - 验证日期：2026-08-12
 - 工作目录：项目根目录
 - 当前验证环境：Windows、Python 3.13、登录专用 Microsoft Edge
@@ -21,14 +21,24 @@ python -m compileall -q boss_assistant tests run_control_panel.py tools
 
 结果：
 
-- 测试：`150 passed`
+- 测试：`152 passed`
 - Python 编译检查：通过
 - 项目 `.venv` 依赖一致性：`No broken requirements found`
 - `config/model_api.example.json` 与本地 API 配置：均通过 JSON 解析
 
-`ruff` 已安装；本次修改文件通过 `E9,F63,F7,F82,I` 针对性检查。全仓仍存在既有风格问题，因此没有把全仓 Ruff 伪装成通过，也没有借本次更新扩大修改范围。
+`ruff` 已安装；本次修改文件通过 `E9,F63,F7,F82` 针对性检查。runner 的既有 import 排序及全仓其它风格问题仍存在，因此没有把全仓 Ruff 伪装成通过，也没有借本次更新扩大修改范围。
 
 构建和测试统一使用项目 `.venv`，`pip check` 返回 `No broken requirements found`。
+
+## 0.2.2 岗位与消息结果状态统一筛选
+
+- “投递情况”下拉框按需求严格设置为：全部、发送成功、已填充未发送、未投递、处理失败、发送失败、已置顶待处理、已发送简历、HR已拒绝，已忽略；默认仍为“全部”，与岗位、地点继续按“且”关系筛选，运行期间动态显示逻辑不变。
+- 前六类继续匹配岗位处理记录；后三类匹配消息巡检记录的真实 `action`。其中“已发送简历”归并本次直接发送和回复后发送，并以 `resume_sent=true` 为实际发送证据，不把“简历此前已发送”误计为本次发送。
+- 两条无需模型即可确定的 HR 拒绝路径现记录为“HR已拒绝，已忽略”，使筛选结果与界面动作一致；附件简历已发送/已查看、岗位不匹配、对方结束沟通及其它“无需处理”分支保持原分类。
+- 回归锁定九项选项及顺序，分别验证置顶、直接发送、回复后发送、此前已发送、普通无需处理，以及列表预览和打开会话后的两条 HR 拒绝识别路径；`python -m pytest tests -q` 为 `152 passed`。
+- 已使用 Python 3.13、Nuitka 4.1.3、MSVC 14.5、LTO 和 onefile 重新构建两个正式 EXE；两个 PE 均为 64 位 GUI 子系统 2，文件版本与产品版本均为 `0.2.2.0`。编译报告确认 `boss_assistant.automation.runner`、`boss_assistant.gui.app` 与 `boss_assistant.gui.result_filter` 均为 `CompiledPythonModule`，临时加固 staging 已删除。
+- `Boss求职助手.exe`：27,792,896 字节，SHA-256 `DB9F19F1044C9E1E9726539384E64F3A9478E80391A46935CD332A3B58BAC2D4`；`Boss登录浏览器.exe`：14,177,280 字节，SHA-256 `3A75A04FCEA55BDC1CAE012FB91B5D3619E964E0A815829B64E634E39FA06D6A`。
+- 新主 EXE 使用隔离的无服务调试端口安全启动，窗口标题为 `Boss 求职助手控制台-Win v0.2.2` 且响应正常；未点击“开始”，随后通过窗口关闭流程干净退出，确认无本次进程残留。
 
 ## 0.2.1 投递情况筛选选项收敛
 

@@ -2016,7 +2016,40 @@ def test_hr_rejection_is_ignored_without_pin_or_model_review(
         runner._handle_unread_conversation(conversation, stats)  # noqa: SLF001
 
     pin.assert_not_called()
-    assert stats.chat_actions[-1]["action"] == "无需处理"
+    assert stats.chat_actions[-1]["action"] == "HR已拒绝，已忽略"
+    assert "不回复且不置顶" in str(stats.chat_actions[-1]["reason"])
+
+
+def test_hr_rejection_found_after_opening_chat_uses_filterable_action() -> None:
+    conversation = _conversation(last_message="您好，我看一下")
+    provider = SimpleNamespace(
+        review_chat_message=lambda *_args, **_kwargs: pytest.fail(
+            "完整消息已明确拒绝时不应再调用模型"
+        )
+    )
+    runner = BossAutomationRunner(
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(),  # type: ignore[arg-type]
+        SimpleNamespace(education=()),  # type: ignore[arg-type]
+        review_provider=provider,  # type: ignore[arg-type]
+    )
+    runner._return_to_message_list = lambda: None  # type: ignore[method-assign]  # noqa: SLF001
+    runner._find_conversation = lambda _fingerprint: conversation  # type: ignore[method-assign]  # noqa: SLF001
+    runner._open_conversation = lambda _conversation: True  # type: ignore[method-assign]  # noqa: SLF001
+    runner._wait = lambda predicate, *_args, **_kwargs: predicate(None)  # type: ignore[method-assign]  # noqa: SLF001
+
+    with patch(
+        "boss_assistant.automation.runner.extract_chat_messages",
+        return_value=(ChatMessage("抱歉，您的经历与岗位不太匹配。", False, 0),),
+    ), patch(
+        "boss_assistant.automation.runner.extract_chat_system_notes",
+        return_value=(),
+    ), patch.object(runner, "_pin_conversation") as pin:
+        stats = AutomationStats()
+        runner._handle_unread_conversation(conversation, stats)  # noqa: SLF001
+
+    pin.assert_not_called()
+    assert stats.chat_actions[-1]["action"] == "HR已拒绝，已忽略"
     assert "不回复且不置顶" in str(stats.chat_actions[-1]["reason"])
 
 
@@ -2400,15 +2433,59 @@ def test_job_result_filter_prioritizes_full_and_more_complete_title_matches() ->
     assert job_title_relevance("AI应用开发工程师", "无关销售") is None
 
 
-def test_delivery_status_filter_options_exclude_dry_run_status() -> None:
+def test_delivery_status_filter_options_match_supported_job_and_chat_results() -> None:
     assert DELIVERY_STATUS_OPTIONS == (
         "全部",
-        "未投递",
-        "已填充未发送",
         "发送成功",
+        "已填充未发送",
+        "未投递",
         "处理失败",
         "发送失败",
+        "已置顶待处理",
+        "已发送简历",
+        "HR已拒绝，已忽略",
     )
+
+
+def test_chat_result_status_filter_maps_each_supported_action_semantically() -> None:
+    actions = (
+        {"action": "已置顶待处理", "resume_sent": False},
+        {"action": "已发送简历", "resume_sent": True},
+        {"action": "已回复并发送简历", "resume_sent": True},
+        {"action": "简历此前已发送", "resume_sent": False},
+        {"action": "HR已拒绝，已忽略", "resume_sent": False},
+        {"action": "无需处理", "resume_sent": False},
+    )
+    records = [
+        ResultViewRecord(
+            sequence=str(index + 1),
+            ordinal=index,
+            record={"record_type": "chat_action", **action},
+        )
+        for index, action in enumerate(actions)
+    ]
+
+    assert [
+        row.sequence
+        for row in filter_result_records(
+            records,
+            ResultFilter(delivery_status="已置顶待处理"),
+        )
+    ] == ["1"]
+    assert [
+        row.sequence
+        for row in filter_result_records(
+            records,
+            ResultFilter(delivery_status="已发送简历"),
+        )
+    ] == ["2", "3"]
+    assert [
+        row.sequence
+        for row in filter_result_records(
+            records,
+            ResultFilter(delivery_status="HR已拒绝，已忽略"),
+        )
+    ] == ["5"]
 
 
 def test_job_result_filter_fields_are_combined_with_and_relation() -> None:
